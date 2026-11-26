@@ -1,13 +1,17 @@
 import json
+import random
 import sqlite3
 import threading
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
+from http.cookiejar import CookieJar
 from http.server import ThreadingHTTPServer
 
 import pytest
 
 from ukeire_dojo.bank import SCHEMA
+from ukeire_dojo.practice import Practice, practice_weights
 from ukeire_dojo.server import Handler, ProblemPicker, RateLimiter, grade, public_problem
 
 
@@ -108,8 +112,6 @@ def test_picker_filters(db):
 
 
 def test_picker_is_uniform_over_matches(db):
-    import random
-
     ids = [insert(db, ai_best="E", eff_best=["C"], disagree=d, eff_loss=0.01 * i, opp_riichi=d)
            for i in range(1, 7) for d in (0, 1)]
     picker = ProblemPicker(db, rng=random.Random(0))
@@ -118,6 +120,24 @@ def test_picker_is_uniform_over_matches(db):
         counts[picker.pick(min_loss=0.0)] += 1
     # 칸(분류)이 달라도 문제마다 같은 확률로 뽑혀야 한다. 기대 1000회, 허용 ±15%.
     assert all(850 <= c <= 1150 for c in counts.values()), counts
+
+
+def test_practice_weights_respect_all_filters(db, tmp_path):
+    riichi = insert(db, ai_best="E", eff_best=["C"], disagree=1, eff_loss=0.02)
+    closed = insert(db, ai_best="E", eff_best=["C"], disagree=1, eff_loss=0.02, opp_riichi=0)
+    insert(db, ai_best="E", eff_best=["C"], disagree=1, eff_loss=0.005)
+    insert(db, ai_best="C", eff_best=["C"], disagree=0, eff_loss=0.02)
+    insert(db, ai_best="E", eff_best=["C"], disagree=1, eff_loss=0.02, menzen=0)
+    practice = Practice(tmp_path / "practice.sqlite")
+    for i in range(15):
+        practice.record("learner", str(i), riichi, "opp_riichi", "C", 0.01)
+        practice.record("learner", str(i + 15), closed, "closed_hand", "C", 0.009)
+    weights = practice_weights(practice.summary("learner"))
+    picker = ProblemPicker(db, rng=random.Random(0))
+    picks = [picker.pick(min_loss=0.01, disagree=True, menzen=True, weights=weights) for _ in range(1000)]
+    assert set(picks) == {riichi, closed}
+    assert 740 < picks.count(riichi) < 850
+    assert picker.pick(min_loss=0.01, disagree=True, opp_riichi=False, menzen=True, weights=weights) == closed
 
 
 def test_rate_limiter_refills():
@@ -139,6 +159,7 @@ def server(db, tmp_path):
     Handler.db_path = tmp_path / "bank.sqlite"
     Handler.static_root = static
     Handler.picker = ProblemPicker(db)
+    Handler.practice = Practice(tmp_path / "practice.sqlite")
     Handler.password = None
     Handler.limiter = RateLimiter(rate=1000, burst=1000)
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
@@ -146,6 +167,8 @@ def server(db, tmp_path):
     thread.start()
     yield f"http://127.0.0.1:{httpd.server_address[1]}"
     httpd.shutdown()
+    httpd.server_close()
+    Handler.practice = None
     Handler.password = None
     Handler.limiter = RateLimiter()
 
@@ -167,6 +190,46 @@ def test_http_round_trip(server):
     with pytest.raises(urllib.error.HTTPError) as missing:
         get(f"{server}/api/problem?min_loss=0.9")
     assert missing.value.code == 404
+
+
+def test_practice_records_one_answer_per_presentation_and_keeps_profiles_separate(server, tmp_path):
+    cookies = CookieJar()
+    browser = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookies))
+
+    def problem(opener):
+        with opener.open(f"{server}/api/problem?adaptive=1") as response:
+            return json.load(response)
+
+    first = problem(browser)
+    assert first["practice"]["kinds"]["opp_riichi"] == {"answered": 0, "mistakes": 0}
+
+    def answer(presentation, tile):
+        payload = {key: presentation[key] for key in ("id", "attempt_id")}
+        with browser.open(f"{server}/api/answer", json.dumps(payload | {"tile": tile}).encode()) as response:
+            return json.load(response)
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(lambda _: answer(first, "C"), range(4)))
+    for result in results:
+        assert result["mistake_kind"] == "opp_riichi"
+        assert result["practice"]["kinds"]["opp_riichi"] == {"answered": 1, "mistakes": 1}
+    assert answer(first, "E")["tile"] == "C"
+
+    next_problem = problem(browser)
+    assert next_problem["id"] == first["id"] and next_problem["attempt_id"] != first["attempt_id"]
+    correct = answer(next_problem, "E")
+    assert correct["mistake_kind"] is None
+    assert correct["practice"]["kinds"]["opp_riichi"] == {"answered": 2, "mistakes": 1}
+
+    Handler.practice = Practice(tmp_path / "practice.sqlite")
+    assert problem(browser)["practice"] == correct["practice"]
+    stranger = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(CookieJar()))
+    assert problem(stranger)["practice"] == first["practice"]
+
+    assert status_of(
+        f"{server}/api/answer", data=json.dumps({"id": first["id"], "tile": "C", "attempt_id": first["attempt_id"]}).encode(),
+        method="POST",
+    )[0] == 400
 
 
 def test_static_cannot_escape_root(server):

@@ -2,6 +2,7 @@
 
 GET  /api/problem?min_loss=0.01&disagree=1&opp_riichi=any&menzen=any   문제 하나(정답 정보 없음)
 POST /api/answer {"id": 123, "tile": "5m"}                                 채점 결과
+브라우저는 출제 응답의 attempt_id를 채점 요청에 보내 풀이를 기록한다.
 그 밖의 경로는 web/dist(빌드한 화면)의 정적 파일을 준다.
 
 사용(로컬): python -m ukeire_dojo.server --db data/bank.sqlite --port 8765
@@ -17,23 +18,31 @@ import base64
 import bisect
 import hmac
 import json
+import math
 import mimetypes
 import os
 import random
+import re
+import secrets
 import socket
 import sqlite3
 import sys
 import threading
 import time
 from http import HTTPStatus
+from http.cookies import CookieError, SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+
+from ukeire_dojo.practice import MISTAKE_LOSS, Practice, practice_weights, problem_kind
 
 ROOT = Path(__file__).resolve().parents[1]
 WINDS = "ESWN"
 MAX_BODY = 4096  # /api/answer의 본문은 수십 바이트다. 큰 본문으로 메모리를 채우는 요청을 막는다.
 PASSWORD_ENV = "UKEIRE_DOJO_PASSWORD"
+PROFILE_COOKIE = "ukeire_profile"
+PRACTICE_TOKEN = re.compile(r"[0-9a-f]{32}")
 
 
 class RateLimiter:
@@ -97,6 +106,7 @@ class ProblemPicker:
         disagree: bool | None = None,
         opp_riichi: bool | None = None,
         menzen: bool | None = None,
+        weights: dict[str, float] | None = None,
     ) -> int | None:
         wanted = (disagree, opp_riichi, menzen)
         spans = []
@@ -104,16 +114,14 @@ class ProblemPicker:
             if all(w is None or int(w) == k for w, k in zip(wanted, key)):
                 start = bisect.bisect_left(losses, min_loss)
                 if start < len(ids):
-                    spans.append((ids, start, len(ids) - start))
-        total = sum(size for _, _, size in spans)
-        if total == 0:
+                    weight = weights[problem_kind(key[1], key[2])] if weights else 1
+                    spans.append((ids, start, len(ids) - start, weight))
+        if not spans:
             return None
-        offset = self._rng.randrange(total)
-        for ids, start, size in spans:
-            if offset < size:
-                return ids[start + offset]
-            offset -= size
-        raise AssertionError("unreachable")
+        ids, start, size, _ = self._rng.choices(
+            spans, weights=[size * weight for _, _, size, weight in spans],
+        )[0]
+        return ids[start + self._rng.randrange(size)]
 
 
 def public_problem(row: sqlite3.Row) -> dict:
@@ -198,6 +206,7 @@ class Handler(BaseHTTPRequestHandler):
     db_path: Path
     static_root: Path
     picker: ProblemPicker
+    practice: Practice | None = None
     password: str | None = None
     limiter: RateLimiter = RateLimiter()
     # 느리게 보내는 연결이 스레드를 오래 붙잡지 못하게 소켓 읽기에 시간 제한을 둔다.
@@ -264,6 +273,13 @@ class Handler(BaseHTTPRequestHandler):
             return False
         return True
 
+    def _profile(self) -> str | None:
+        try:
+            cookie = SimpleCookie(self.headers.get("Cookie", "")).get(PROFILE_COOKIE)
+        except CookieError:
+            return None
+        return cookie.value if cookie and PRACTICE_TOKEN.fullmatch(cookie.value) else None
+
     def do_GET(self) -> None:  # noqa: N802
         url = urlparse(self.path)
         if not self._guard(api=url.path.startswith("/api/")):
@@ -271,20 +287,39 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/api/problem":
             query = {k: v[-1] for k, v in parse_qs(url.query).items()}
             try:
+                min_loss = float(query.get("min_loss", 0))
+                if not math.isfinite(min_loss):
+                    raise ValueError("min_loss must be finite")
+                adaptive = _tri(query.get("adaptive", "0"))
+                profile = self._profile()
+                summary = self.practice.summary(profile) if self.practice else None
                 problem_id = self.picker.pick(
-                    min_loss=float(query.get("min_loss", 0)),
+                    min_loss=min_loss,
                     disagree=_tri(query.get("disagree")),
                     opp_riichi=_tri(query.get("opp_riichi")),
                     menzen=_tri(query.get("menzen")),
+                    weights=practice_weights(summary) if adaptive and summary else None,
                 )
             except ValueError as e:
                 self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(e)})
+                return
+            except sqlite3.Error as e:
+                self.log_error("practice storage unavailable: %s", e)
+                self._send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "풀이 기록을 읽을 수 없습니다."})
                 return
             if problem_id is None:
                 self._send_json(HTTPStatus.NOT_FOUND, {"error": "no problem matches the filters"})
                 return
             row = self._db().execute("SELECT * FROM problems WHERE id = ?", (problem_id,)).fetchone()
-            self._send_json(HTTPStatus.OK, public_problem(row))
+            problem = public_problem(row)
+            headers = {}
+            if summary is not None:
+                problem.update(attempt_id=secrets.token_hex(16), practice=summary)
+                if profile is None:
+                    headers["Set-Cookie"] = (
+                        f"{PROFILE_COOKIE}={secrets.token_hex(16)}; Max-Age=31536000; Path=/api; HttpOnly; SameSite=Strict"
+                    )
+            self._send_json(HTTPStatus.OK, problem, headers)
             return
         self._send_static(url.path)
 
@@ -304,9 +339,29 @@ class Handler(BaseHTTPRequestHandler):
             if row is None:
                 self._send_json(HTTPStatus.NOT_FOUND, {"error": "unknown problem"})
                 return
-            self._send_json(HTTPStatus.OK, grade(row, str(body["tile"])))
+            result = grade(row, str(body["tile"]))
+            if self.practice and "attempt_id" in body:
+                profile = self._profile()
+                attempt = body["attempt_id"]
+                if not isinstance(attempt, str) or not PRACTICE_TOKEN.fullmatch(attempt) or profile is None:
+                    raise ValueError("invalid attempt_id or missing practice cookie")
+                kind = problem_kind(row["opp_riichi"], row["menzen"])
+                saved_id, saved_tile = self.practice.record(
+                    profile, attempt, row["id"], kind, result["tile"], result["chosen_ai_loss"],
+                )
+                if saved_id != row["id"]:
+                    self._send_json(HTTPStatus.CONFLICT, {"error": "attempt already used for another problem"})
+                    return
+                if saved_tile != result["tile"]:
+                    result = grade(row, saved_tile)
+                result["practice"] = self.practice.summary(profile)
+                result["mistake_kind"] = kind if result["chosen_ai_loss"] >= MISTAKE_LOSS else None
+            self._send_json(HTTPStatus.OK, result)
         except (ValueError, KeyError, TypeError, json.JSONDecodeError) as e:
             self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(e)})
+        except sqlite3.Error as e:
+            self.log_error("answer storage unavailable: %s", e)
+            self._send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "풀이 기록을 저장할 수 없습니다."})
 
     def _send_static(self, path: str) -> None:
         relative = path.lstrip("/") or "index.html"
@@ -383,6 +438,7 @@ def is_loopback(host: str) -> bool:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", type=Path, default=ROOT / "data" / "bank.sqlite")
+    parser.add_argument("--practice-db", type=Path, help="풀이 기록 DB. 기본값은 문제은행 옆 practice.sqlite")
     parser.add_argument("--host", default="127.0.0.1", help="공개하려면 0.0.0.0. 이때는 암호가 필요하다")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--static", type=Path, default=ROOT / "web" / "dist")
@@ -403,6 +459,10 @@ def main() -> None:
     Handler.static_root = args.static.resolve()
     Handler.password = password
     Handler.log_file = args.log_file
+    practice_path = (args.practice_db or Handler.db_path.with_name("practice.sqlite")).resolve()
+    if practice_path == Handler.db_path or (practice_path.exists() and practice_path.samefile(Handler.db_path)):
+        raise SystemExit("practice database must be separate from the problem bank")
+    Handler.practice = Practice(practice_path)
     Handler.picker = ProblemPicker(sqlite3.connect(f"file:{Handler.db_path}?mode=ro", uri=True))
     try:
         server = Server((args.host, args.port), Handler)

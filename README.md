@@ -10,7 +10,8 @@
 ## 현재 상태 (2026-11-26)
 - 문제은행: 374반장, 184,293문제(로컬 `data/bank.sqlite`, 저장소에는 넣지 않음).
 - 효율 최선과 AI 최선이 갈리는 문제는 36.8%다. 그중 손실 0.01 이상인 것은 전체의 5.1%이고, 상대 리치가 있으면 16.7%로 올라간다.
-- 트레이너 화면(T4): 문제를 풀면 효율 기준과 AI 기준으로 함께 채점하고, 버릴 수 있는 모든 패의 AI 손실, 샨텐, 유효패를 보여 준다. 오답 기록(T5)과 해설(T6)은 아직 없다.
+- 트레이너 화면(T4): 문제를 풀면 효율 기준과 AI 기준으로 함께 채점하고, 버릴 수 있는 모든 패의 AI 손실, 샨텐, 유효패를 보여 준다.
+- 오답 기록(T5): 상대 리치 대응, 울기 손, 문전 손의 풀이 수와 오답률을 보여 준다. 기본 출제 방식은 약점 우선이며 균등 출제로 바꿀 수 있다.
 - 계획과 결정 기록은 [docs/brainstorm](docs/brainstorm/2026-11-26-ai-efficiency-trainer.md)에 있다.
 
 ## 트레이너 실행
@@ -20,11 +21,14 @@ python -m ukeire_dojo.server --db data/bank.sqlite   # http://127.0.0.1:8765
 ```
 화면을 고치는 중이라면 서버를 띄운 채로 `cd web; npm run dev`를 실행한다(http://localhost:5173, `/api`는 8765로 프록시된다).
 
+풀이 기록은 문제은행 옆 `practice.sqlite`에 저장한다. 경로를 바꾸려면 서버에 `--practice-db`를 넘긴다. 같은 주소와 브라우저 프로필에서 쿠키를 유지하면 서버를 다시 시작한 뒤에도 통계를 이어서 볼 수 있다.
+
 ## 지인에게 공개 (DDNS)
 ```powershell
 .\scripts\serve-public.ps1   # 0.0.0.0:5173, 암호는 data\server-password.txt(처음 실행할 때 무작위로 만든다)
 ```
 - 탐색기에서 `serve-public.bat`을 더블클릭해도 같다. 창을 닫거나 `Ctrl+C`를 누르면 서버가 멈춘다. 오류로 끝나면 창이 닫히지 않고 기다린다.
+- 기존 화면 빌드가 있는 상태에서 업데이트했다면 `web`에서 `npm run build`를 실행한 뒤 서버를 시작한다.
 - 이미 서버가 떠 있으면 두 번째 실행은 "이미 사용 중"으로 바로 실패한다.
 - 외부 주소로 열 때는 서버가 암호(Basic 인증, 12자 이상) 없이는 시작하지 않는다.
 - API 요청과 인증 실패에 IP별 속도 제한(초당 5회, 순간 30회), 요청 본문 4KB 제한, 소켓 시간 제한이 걸린다. 접속 기록은 `data\server-access.log`에 남는다.
@@ -38,7 +42,8 @@ python -m ukeire_dojo.server --db data/bank.sqlite   # http://127.0.0.1:8765
 | `ukeire_dojo/positions.py` | 리뷰어 결과 문서에서 판단 직전 국면을 복원 |
 | `ukeire_dojo/efficiency.py` | 샨텐·유효패 계산(Epsilon 샨텐 테이블과 무작위 손패 2만 개 대조, 불일치 0) |
 | `ukeire_dojo/bank.py` | 문제 추출과 SQLite 문제은행 |
-| `ukeire_dojo/server.py` | 문제 출제·채점 HTTP 서버(표준 라이브러리, localhost 전용) |
+| `ukeire_dojo/server.py` | 문제 출제·채점 HTTP 서버(표준 라이브러리) |
+| `ukeire_dojo/practice.py` | 브라우저별 SQLite 풀이 기록과 약점 출제 가중치 |
 | `web/` | 트레이너 화면(Vite + React). 패 이미지는 Riichi-Trainer의 CC BY 4.0 에셋 |
 | `tools/batch-review` | 여러 반장을 한 GPU 배치로 분석하는 Java 도구(초당 7,681판단) |
 | `tools/selfplay` | v760 릴리스 jar용 자기대국 mjai 기록기(CPU) |
