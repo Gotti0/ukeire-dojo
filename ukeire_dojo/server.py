@@ -20,6 +20,7 @@ import json
 import mimetypes
 import os
 import random
+import socket
 import sqlite3
 import sys
 import threading
@@ -325,9 +326,43 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    log_file: Path | None = None
+    _log_lock = threading.Lock()
+
     def log_message(self, format: str, *args) -> None:  # noqa: A002
-        # 공개해 두면 누가 얼마나 들어오는지 봐야 한다. 기본 형식(시각, IP, 요청 줄, 상태)을 stderr로 남긴다. 암호는 요청 줄에 없다.
-        sys.stderr.write(f"{self.log_date_time_string()} {self.client_address[0]} {format % args}\n")
+        # 공개해 두면 누가 얼마나 들어오는지 봐야 한다. 기본 형식(시각, IP, 요청 줄, 상태)을 남긴다. 암호는 요청 줄에 없다.
+        write_log(self.log_file, f"{self.log_date_time_string()} {self.client_address[0]} {format % args}")
+
+
+def write_log(path: Path | None, line: str) -> None:
+    """stderr에 쓰고, 지정했으면 파일에도 덧붙인다.
+
+    처음에는 serve-public.ps1이 Tee-Object로 파일에 썼다. 그런데 Tee-Object는 파일을 독점으로 열어서, 같은 로그에 덧붙이는 다른
+    서버가 있으면 시작부터 실패했다. 그래서 줄마다 덧붙이기 모드로 열고 닫는다. 이 서버의 요청 수에서는 비용이 무시할 만하다.
+    """
+    sys.stderr.write(line + "\n")
+    sys.stderr.flush()
+    if path is None:
+        return
+    with Handler._log_lock, open(path, "a", encoding="utf-8") as log:
+        log.write(line + "\n")
+
+
+class Server(ThreadingHTTPServer):
+    """포트를 독점하는 HTTP 서버.
+
+    HTTPServer는 SO_REUSEADDR를 켠다. Windows에서는 이 옵션 때문에 다른 프로세스가 같은 포트에 또 바인드할 수 있다. 배치 파일을 두 번
+    실행했을 때 실제로 서버 두 개가 5180을 함께 잡고 연결을 나눠 가졌고, 한쪽이 응답하지 않아 요청이 시간 초과로 끝났다. 그래서
+    Windows에서는 재사용을 끄고 SO_EXCLUSIVEADDRUSE를 건다. 두 번째 실행은 "이미 사용 중"으로 바로 실패한다.
+    """
+
+    daemon_threads = True
+    allow_reuse_address = os.name != "nt"
+
+    def server_bind(self) -> None:
+        if os.name == "nt":
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
 
 
 def cache_control(relative: str) -> str:
@@ -352,6 +387,7 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--static", type=Path, default=ROOT / "web" / "dist")
     parser.add_argument("--password-file", type=Path, help=f"암호 파일. 없으면 환경 변수 {PASSWORD_ENV}를 읽는다")
+    parser.add_argument("--log-file", type=Path, help="접속 기록을 덧붙일 파일(stderr에도 쓴다)")
     args = parser.parse_args()
     if not args.db.is_file():
         raise SystemExit(f"problem bank not found: {args.db}")
@@ -366,14 +402,13 @@ def main() -> None:
     Handler.db_path = args.db.resolve()
     Handler.static_root = args.static.resolve()
     Handler.password = password
+    Handler.log_file = args.log_file
     Handler.picker = ProblemPicker(sqlite3.connect(f"file:{Handler.db_path}?mode=ro", uri=True))
-    server = ThreadingHTTPServer((args.host, args.port), Handler)
-    server.daemon_threads = True
-    print(
-        f"serving http://{args.host}:{args.port}  db={args.db}  auth={'on' if password else 'off'}",
-        file=sys.stderr,
-        flush=True,
-    )
+    try:
+        server = Server((args.host, args.port), Handler)
+    except OSError as e:
+        raise SystemExit(f"cannot listen on {args.host}:{args.port} ({e}). Is another server already running?") from e
+    write_log(args.log_file, f"serving http://{args.host}:{args.port}  db={args.db}  auth={'on' if password else 'off'}")
     server.serve_forever()
 
 
