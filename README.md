@@ -10,7 +10,15 @@
 ## 현재 상태 (2026-11-26)
 - 문제은행: 374반장, 184,293문제(로컬 `data/bank.sqlite`, 저장소에는 넣지 않음).
 - 효율 최선과 AI 최선이 갈리는 문제는 36.8%다. 그중 손실 0.01 이상인 것은 전체의 5.1%이고, 상대 리치가 있으면 16.7%로 올라간다.
-- 트레이너 화면(T4)은 아직 없다. 계획과 결정 기록은 [docs/brainstorm](docs/brainstorm/2026-11-26-ai-efficiency-trainer.md)에 있다.
+- 트레이너 화면(T4): 문제를 풀면 효율 기준과 AI 기준으로 함께 채점하고, 버릴 수 있는 모든 패의 AI 손실, 샨텐, 유효패를 보여 준다. 오답 기록(T5)과 해설(T6)은 아직 없다.
+- 계획과 결정 기록은 [docs/brainstorm](docs/brainstorm/2026-11-26-ai-efficiency-trainer.md)에 있다.
+
+## 트레이너 실행
+```powershell
+cd web; npm install; npm run build; cd ..
+python -m ukeire_dojo.server --db data/bank.sqlite   # http://127.0.0.1:8765
+```
+화면을 고치는 중이라면 서버를 띄운 채로 `cd web; npm run dev`를 실행한다(http://localhost:5173, `/api`는 8765로 프록시된다).
 
 ## 구성
 | 경로 | 내용 |
@@ -19,6 +27,8 @@
 | `ukeire_dojo/positions.py` | 리뷰어 결과 문서에서 판단 직전 국면을 복원 |
 | `ukeire_dojo/efficiency.py` | 샨텐·유효패 계산(Epsilon 샨텐 테이블과 무작위 손패 2만 개 대조, 불일치 0) |
 | `ukeire_dojo/bank.py` | 문제 추출과 SQLite 문제은행 |
+| `ukeire_dojo/server.py` | 문제 출제·채점 HTTP 서버(표준 라이브러리, localhost 전용) |
+| `web/` | 트레이너 화면(Vite + React). 패 이미지는 Riichi-Trainer의 CC BY 4.0 에셋 |
 | `tools/batch-review` | 여러 반장을 한 GPU 배치로 분석하는 Java 도구(초당 7,681판단) |
 | `tools/selfplay` | v760 릴리스 jar용 자기대국 mjai 기록기(CPU) |
 | `tools/shanten-oracle` | 샨텐 계산 검증용 정답지 |

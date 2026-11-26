@@ -1,0 +1,312 @@
+:root {
+  --bg: #f4f1ea;
+  --felt: #2f5d50;
+  --felt-dark: #23463c;
+  --ink: #1d2320;
+  --muted: #5d665f;
+  --good: #1f7a4d;
+  --bad: #b3401f;
+  --ai: #2b62c4;
+  --eff: #c48a12;
+  font-family: system-ui, "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+}
+
+body {
+  margin: 0;
+}
+
+.app {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+h1 {
+  font-size: 1.4rem;
+  margin: 0;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.small-text {
+  font-size: 0.8rem;
+}
+
+.filters {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: 12px 0;
+  font-size: 0.9rem;
+}
+
+.filters label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.error {
+  background: #fbe3dc;
+  color: var(--bad);
+  padding: 8px 12px;
+  border-radius: 6px;
+}
+
+.table {
+  display: grid;
+  grid-template-columns: 1fr 1.3fr 1fr;
+  grid-template-areas:
+    ". top ."
+    "left center right"
+    ". bottom .";
+  gap: 8px;
+  background: var(--felt);
+  color: #f3f1e8;
+  padding: 12px;
+  border-radius: 10px;
+}
+
+.seat-top { grid-area: top; }
+.seat-left { grid-area: left; }
+.seat-right { grid-area: right; }
+.seat-bottom { grid-area: bottom; }
+
+.center {
+  grid-area: center;
+  background: var(--felt-dark);
+  border-radius: 8px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  justify-content: center;
+  align-items: center;
+  font-size: 0.9rem;
+}
+
+.center .muted {
+  color: #c6d3cc;
+}
+
+.round {
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+.dora {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.seat-label {
+  font-size: 0.85rem;
+  margin-bottom: 4px;
+}
+
+.badge {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+}
+
+.badge.riichi {
+  background: #e2b13c;
+  color: #2a2000;
+}
+
+.river {
+  display: grid;
+  grid-template-columns: repeat(6, max-content);
+  gap: 2px;
+  min-height: 34px;
+}
+
+.tile {
+  display: inline-flex;
+  padding: 0;
+  border: 0;
+  background: none;
+  line-height: 0;
+}
+
+.tile img {
+  width: 40px;
+  height: auto;
+  user-select: none;
+}
+
+.tile.small img {
+  width: 24px;
+}
+
+.tile.sideways img {
+  transform: rotate(90deg);
+  margin: 0 5px;
+}
+
+.tile.small.sideways img {
+  margin: 0 4px;
+}
+
+.tile.dim img {
+  opacity: 0.35;
+}
+
+.tile.tsumogiri img {
+  filter: brightness(0.88);
+}
+
+.melds {
+  display: inline-flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.meld {
+  display: inline-flex;
+  gap: 1px;
+  align-items: flex-end;
+}
+
+.prompt {
+  margin: 14px 0 6px;
+  font-weight: 600;
+}
+
+.hand {
+  display: flex;
+  gap: 3px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.hand .tile img {
+  width: 52px;
+}
+
+.hand button.tile {
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 2px;
+  border: 3px solid transparent;
+  transition: transform 0.08s;
+}
+
+.hand button.tile:hover:not(:disabled) {
+  transform: translateY(-6px);
+}
+
+.hand button.tile:disabled {
+  cursor: default;
+}
+
+.hand button.tile:focus-visible {
+  outline: 3px solid var(--ai);
+}
+
+.hand .chosen {
+  border-color: var(--ink);
+}
+
+.hand .ai-best {
+  background: rgba(43, 98, 196, 0.25);
+  border-color: var(--ai);
+}
+
+.hand .eff-best {
+  box-shadow: inset 0 -6px 0 var(--eff);
+}
+
+.draw-gap {
+  width: 16px;
+}
+
+.my-melds {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.result {
+  margin-top: 16px;
+  background: #fff;
+  border-radius: 10px;
+  padding: 14px;
+}
+
+.verdict {
+  font-weight: 700;
+  font-size: 1.05rem;
+  margin-bottom: 4px;
+}
+
+.verdict.good {
+  color: var(--good);
+}
+
+.verdict.bad {
+  color: var(--bad);
+}
+
+table {
+  border-collapse: collapse;
+  margin-top: 10px;
+  width: 100%;
+  font-size: 0.9rem;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 4px 8px;
+  border-bottom: 1px solid #e6e2d8;
+}
+
+td .tile {
+  vertical-align: middle;
+}
+
+tr.ai-row {
+  background: rgba(43, 98, 196, 0.1);
+}
+
+tr.chosen-row td:first-child {
+  font-weight: 700;
+}
+
+.waits {
+  color: var(--muted);
+}
+
+.next {
+  margin-top: 12px;
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: 0;
+  background: var(--felt);
+  color: #fff;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+footer {
+  margin-top: 24px;
+}
