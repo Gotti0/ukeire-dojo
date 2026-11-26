@@ -241,22 +241,32 @@ class Handler(BaseHTTPRequestHandler):
         # 사용자 이름은 보지 않는다. 암호 하나를 지인끼리 나눠 쓰는 용도다. 비교 시간으로 암호가 새지 않게 상수 시간 비교를 쓴다.
         return hmac.compare_digest(supplied.encode(), self.password.encode())
 
-    def _guard(self) -> bool:
-        """속도 제한과 인증을 통과하면 True. 아니면 응답을 이미 보냈다."""
-        if not self.limiter.allow(self.client_address[0]):
-            self._send_json(HTTPStatus.TOO_MANY_REQUESTS, {"error": "too many requests"}, {"Retry-After": "5"})
-            return False
+    def _guard(self, api: bool) -> bool:
+        """인증과 속도 제한을 통과하면 True. 아니면 응답을 이미 보냈다.
+
+        속도 제한은 API 요청과 인증 실패에만 건다. 처음에는 모든 요청에 걸었다. 그런데 화면 한 번에 패 이미지 수십 장을 받아서
+        순간 한도(30)를 넘었고, 외부 접속에서 이미지가 429로 깨졌다. 인증을 통과한 정적 파일은 디스크에서 읽어 주기만 하므로 막을
+        이유가 없다. 인증 실패는 계속 세어야 정적 경로를 이용한 암호 대입도 막힌다.
+        """
         if not self._authorized():
-            self._send_json(
-                HTTPStatus.UNAUTHORIZED, {"error": "password required"}, {"WWW-Authenticate": 'Basic realm="ukeire-dojo"'}
-            )
+            if not self.limiter.allow(self.client_address[0]):
+                self._send_json(HTTPStatus.TOO_MANY_REQUESTS, {"error": "too many requests"}, {"Retry-After": "5"})
+            else:
+                self._send_json(
+                    HTTPStatus.UNAUTHORIZED,
+                    {"error": "password required"},
+                    {"WWW-Authenticate": 'Basic realm="ukeire-dojo"'},
+                )
+            return False
+        if api and not self.limiter.allow(self.client_address[0]):
+            self._send_json(HTTPStatus.TOO_MANY_REQUESTS, {"error": "too many requests"}, {"Retry-After": "5"})
             return False
         return True
 
     def do_GET(self) -> None:  # noqa: N802
-        if not self._guard():
-            return
         url = urlparse(self.path)
+        if not self._guard(api=url.path.startswith("/api/")):
+            return
         if url.path == "/api/problem":
             query = {k: v[-1] for k, v in parse_qs(url.query).items()}
             try:
@@ -278,7 +288,7 @@ class Handler(BaseHTTPRequestHandler):
         self._send_static(url.path)
 
     def do_POST(self) -> None:  # noqa: N802
-        if not self._guard():
+        if not self._guard(api=True):
             return
         if urlparse(self.path).path != "/api/answer":
             self._send_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
@@ -302,7 +312,7 @@ class Handler(BaseHTTPRequestHandler):
         file = (self.static_root / relative).resolve()
         # 경로 조작(../)으로 static_root 밖을 읽지 못하게 한다.
         if self.static_root.resolve() not in file.parents or not file.is_file():
-            file = self.static_root / "index.html"
+            file = (self.static_root / "index.html").resolve()
         if not file.is_file():
             self._send_json(HTTPStatus.NOT_FOUND, {"error": "web/dist is not built"})
             return
@@ -310,6 +320,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", mimetypes.guess_type(file.name)[0] or "application/octet-stream")
         self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", cache_control(file.relative_to(self.static_root.resolve()).as_posix()))
         self._common_headers()
         self.end_headers()
         self.wfile.write(data)
@@ -317,6 +328,17 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args) -> None:  # noqa: A002
         # 공개해 두면 누가 얼마나 들어오는지 봐야 한다. 기본 형식(시각, IP, 요청 줄, 상태)을 stderr로 남긴다. 암호는 요청 줄에 없다.
         sys.stderr.write(f"{self.log_date_time_string()} {self.client_address[0]} {format % args}\n")
+
+
+def cache_control(relative: str) -> str:
+    """정적 파일의 캐시 정책. 인증 뒤의 내용이라 공유 캐시(프록시)에는 두지 않는다(private)."""
+    if relative.startswith("assets/"):
+        # Vite가 내용 해시를 파일 이름에 넣으므로, 내용이 바뀌면 이름도 바뀐다.
+        return "private, max-age=31536000, immutable"
+    if relative.startswith("tiles/"):
+        return "private, max-age=86400"
+    # index.html은 새 빌드의 해시 파일 이름을 가리키므로 매번 확인하게 한다.
+    return "no-cache"
 
 
 def is_loopback(host: str) -> bool:
