@@ -49,13 +49,13 @@ PROFILE_COOKIE = "ukeire_profile"
 PRACTICE_TOKEN = re.compile(r"[0-9a-f]{32}")
 ROOM_EVENTS_PATH = re.compile(r"^/api/rooms/([A-Za-z0-9]+)/events$")
 ROOM_STATE_PATH = re.compile(r"^/api/rooms/([A-Za-z0-9]+)$")
-ROOM_ACTION_PATH = re.compile(r"^/api/rooms/([A-Za-z0-9]+)/(join|seat|ready|start|action|next-round|leave)$")
+ROOM_ACTION_PATH = re.compile(r"^/api/rooms/([A-Za-z0-9]+)/(join|seat|ready|start|replay|hint|action|next-round|leave)$")
 
 
 class RateLimiter:
-    """IP별 토큰 버킷. 문제를 풀며 누르는 속도(초당 몇 번)는 넉넉히 통과시키고 자동 반복 요청만 막는다."""
+    """IP별 토큰 버킷. 여러 명이 같은 공유기에서 대국·풀이하는 속도는 넉넉히 통과시키고 자동 반복 요청만 막는다."""
 
-    def __init__(self, rate: float = 5.0, burst: int = 30, clock=time.monotonic) -> None:
+    def __init__(self, rate: float = 20.0, burst: int = 100, clock=time.monotonic) -> None:
         self.rate, self.burst, self._clock = rate, burst, clock
         self._buckets: dict[str, tuple[float, float]] = {}
         self._lock = threading.Lock()
@@ -381,6 +381,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(HTTPStatus.OK, self.rooms.set_ready(code, token, bool(body["ready"])))
             elif action == "start":
                 self._send_json(HTTPStatus.OK, self.rooms.start_match(code, token))
+            elif action == "replay":
+                self._send_json(HTTPStatus.OK, self.rooms.start_replay(code, token))
+            elif action == "hint":
+                revision = int(body["revision"]) if body.get("revision") is not None else None
+                self._send_json(HTTPStatus.OK, self.rooms.get_discard_hint(code, token, revision=revision))
             elif action == "action":
                 self._send_json(
                     HTTPStatus.OK,
