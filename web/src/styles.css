@@ -318,6 +318,23 @@ tr.chosen-row td:first-child {
   cursor: pointer;
 }
 
+.explanation {
+  border-top: 1px solid #e6e2d8;
+  padding-top: 10px;
+}
+
+.explanation-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.explanation-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 footer {
   margin-top: 24px;
 }

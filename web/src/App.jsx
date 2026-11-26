@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import Explanation from "./Explanation.jsx";
 import { doraOf, sortTiles, tileImage, tileName, tileType } from "./tiles.js";
 
 const WINDS = "동남서북";
@@ -112,7 +113,7 @@ function Hand({ problem, result, onDiscard, busy }) {
 
 const fmt = (v) => (v === null || v === undefined ? "—" : v.toFixed(3));
 
-function Result({ result, onNext }) {
+function Result({ result, onNext, provider, onProviderChange }) {
   const verdict = result.matches_ai
     ? "AI 최선과 같습니다."
     : `AI 최선은 ${tileName(result.ai_best)}${result.ai_best_riichi ? "(리치)" : ""}입니다. 고른 수의 손실 ${fmt(result.chosen_ai_loss)}`;
@@ -157,6 +158,7 @@ function Result({ result, onNext }) {
         손실은 Epsilon-Prism v760이 추정한 순위 효용(1~4위 = 2/3, 1/3, 0, −1)의 최선수 대비 차이입니다. 유효패는 내 손패와 보이는 패를 뺀 남은
         장수입니다.
       </p>
+      {!result.matches_ai && <Explanation result={result} provider={provider} onProviderChange={onProviderChange} />}
       <button type="button" className="next" onClick={() => onNext()}>
         다음 문제 (Enter)
       </button>
@@ -224,6 +226,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [score, setScore] = useState({ solved: 0, aiMatch: 0, lossSum: 0 });
   const [practice, setPractice] = useState(null);
+  const [provider, setProvider] = useState("codex");
 
   const load = useCallback(async (signal) => {
     setBusy(true);
@@ -284,7 +287,7 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key === "Enter" && result && !busy) load();
+      if (e.key === "Enter" && result && !busy && !e.target.closest?.("button, select, input, summary")) load();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -311,7 +314,7 @@ export default function App() {
               울기 <Melds melds={problem.players[problem.seat].melds} />
             </div>
           )}
-          {result && <Result result={result} onNext={load} />}
+          {result && <Result result={result} onNext={load} provider={provider} onProviderChange={setProvider} />}
         </>
       )}
       <footer className="muted small-text">

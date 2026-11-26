@@ -12,6 +12,7 @@
 - 효율 최선과 AI 최선이 갈리는 문제는 36.8%다. 그중 손실 0.01 이상인 것은 전체의 5.1%이고, 상대 리치가 있으면 16.7%로 올라간다.
 - 트레이너 화면(T4): 문제를 풀면 효율 기준과 AI 기준으로 함께 채점하고, 버릴 수 있는 모든 패의 AI 손실, 샨텐, 유효패를 보여 준다.
 - 오답 기록(T5): 상대 리치 대응, 울기 손, 문전 손의 풀이 수와 오답률을 보여 준다. 기본 출제 방식은 약점 우선이며 균등 출제로 바꿀 수 있다.
+- 해설(T6): AI 최선과 다른 타패를 고른 뒤 Codex CLI, agy CLI(Antigravity), Claude Code CLI 중 하나를 선택해 해설을 요청할 수 있다. 검증된 문장부터 표시하며 생성 중에 취소할 수 있다.
 - 계획과 결정 기록은 [docs/brainstorm](docs/brainstorm/2026-11-26-ai-efficiency-trainer.md)에 있다.
 
 ## 트레이너 실행
@@ -22,6 +23,8 @@ python -m ukeire_dojo.server --db data/bank.sqlite   # http://127.0.0.1:8765
 화면을 고치는 중이라면 서버를 띄운 채로 `cd web; npm run dev`를 실행한다(http://localhost:5173, `/api`는 8765로 프록시된다).
 
 풀이 기록은 문제은행 옆 `practice.sqlite`에 저장한다. 경로를 바꾸려면 서버에 `--practice-db`를 넘긴다. 같은 주소와 브라우저 프로필에서 쿠키를 유지하면 서버를 다시 시작한 뒤에도 통계를 이어서 볼 수 있다.
+
+해설은 서버를 실행한 계정의 CLI 로그인으로 생성한다. 사용할 CLI 실행 파일이 서버의 `PATH`에 있어야 한다. Codex는 로그인 계정이 제공하는 기본 모델을 사용한다. 해설은 동시에 두 건까지 생성할 수 있으며, 앱에서 실행 시간 제한을 두지 않는다.
 
 ## 지인에게 공개 (DDNS)
 ```powershell
@@ -44,6 +47,7 @@ python -m ukeire_dojo.server --db data/bank.sqlite   # http://127.0.0.1:8765
 | `ukeire_dojo/bank.py` | 문제 추출과 SQLite 문제은행 |
 | `ukeire_dojo/server.py` | 문제 출제·채점 HTTP 서버(표준 라이브러리) |
 | `ukeire_dojo/practice.py` | 브라우저별 SQLite 풀이 기록과 약점 출제 가중치 |
+| `ukeire_dojo/explanation.py` | CLI 해설 스트리밍과 엔진 수치 검증 |
 | `web/` | 트레이너 화면(Vite + React). 패 이미지는 Riichi-Trainer의 CC BY 4.0 에셋 |
 | `tools/batch-review` | 여러 반장을 한 GPU 배치로 분석하는 Java 도구(초당 7,681판단) |
 | `tools/selfplay` | v760 릴리스 jar용 자기대국 mjai 기록기(CPU) |
