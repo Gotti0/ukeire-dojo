@@ -5,7 +5,12 @@ const WINDS = "동남서북";
 const ROUND_WIND = { E: "동", S: "남", W: "서", N: "북" };
 const RELATIVE = ["나", "하가", "대면", "상가"];
 
-const DEFAULT_FILTERS = { minLoss: "0.01", disagree: "1", oppRiichi: "any", menzen: "any" };
+const DEFAULT_FILTERS = { minLoss: "0.01", disagree: "1", oppRiichi: "any", menzen: "any", adaptive: "1" };
+const PRACTICE_LABELS = {
+  opp_riichi: "상대 리치 대응",
+  open_hand: "울기 손",
+  closed_hand: "문전 손",
+};
 
 function Tile({ code, small, dim, sideways, onClick, marks = [], disabled }) {
   const className = ["tile", small && "small", dim && "dim", sideways && "sideways", ...marks].filter(Boolean).join(" ");
@@ -114,6 +119,7 @@ function Result({ result, onNext }) {
   return (
     <div className="result">
       <div className={`verdict ${result.matches_ai ? "good" : "bad"}`}>{verdict}</div>
+      {result.mistake_kind && <div className="muted">기록된 오답 유형 · {PRACTICE_LABELS[result.mistake_kind]}</div>}
       <div className="muted">
         효율 최선: {result.eff_best.map(tileName).join(", ")}
         {result.matches_efficiency ? " (고른 수가 효율 최선)" : ""} · 효율 최선의 AI 손실 {fmt(result.eff_loss)}
@@ -151,18 +157,46 @@ function Result({ result, onNext }) {
         손실은 Epsilon-Prism v760이 추정한 순위 효용(1~4위 = 2/3, 1/3, 0, −1)의 최선수 대비 차이입니다. 유효패는 내 손패와 보이는 패를 뺀 남은
         장수입니다.
       </p>
-      <button type="button" className="next" onClick={onNext}>
+      <button type="button" className="next" onClick={() => onNext()}>
         다음 문제 (Enter)
       </button>
     </div>
   );
 }
 
-function Filters({ filters, onChange }) {
+function PracticeStats({ practice }) {
+  if (!practice) return null;
+  return (
+    <details className="practice-stats">
+      <summary>내 유형별 풀이 통계</summary>
+      <table>
+        <thead>
+          <tr><th scope="col">유형</th><th scope="col">푼 문제</th><th scope="col">오답</th><th scope="col">오답률</th></tr>
+        </thead>
+        <tbody>
+          {Object.entries(PRACTICE_LABELS).map(([kind, label]) => {
+            const { answered, mistakes } = practice.kinds[kind];
+            return (
+              <tr key={kind}>
+                <th scope="row">{label}</th><td>{answered}</td><td>{mistakes}</td>
+                <td>{answered ? `${((100 * mistakes) / answered).toFixed(0)}%` : "—"}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <p className="muted small-text">
+        AI 손실 {practice.mistake_loss} 이상을 오답으로 기록합니다. 상대 리치가 있으면 상대 리치 대응으로 집계합니다.
+      </p>
+    </details>
+  );
+}
+
+function Filters({ filters, onChange, busy }) {
   const select = (key, label, options) => (
     <label>
       {label}
-      <select value={filters[key]} onChange={(e) => onChange({ ...filters, [key]: e.target.value })}>
+      <select disabled={busy} value={filters[key]} onChange={(e) => onChange({ ...filters, [key]: e.target.value })}>
         {options.map(([value, text]) => (
           <option key={value} value={value}>
             {text}
@@ -177,6 +211,7 @@ function Filters({ filters, onChange }) {
       {select("disagree", "효율·AI", [["1", "갈리는 문제만"], ["any", "전부"], ["0", "같은 문제만"]])}
       {select("oppRiichi", "상대 리치", [["any", "상관없음"], ["1", "있음"], ["0", "없음"]])}
       {select("menzen", "내 손", [["any", "상관없음"], ["1", "문전"], ["0", "울기"]])}
+      {select("adaptive", "출제 방식", [["1", "약점 우선"], ["0", "균등 출제"]])}
     </div>
   );
 }
@@ -188,8 +223,9 @@ export default function App() {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [score, setScore] = useState({ solved: 0, aiMatch: 0, lossSum: 0 });
+  const [practice, setPractice] = useState(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (signal) => {
     setBusy(true);
     setError(null);
     setResult(null);
@@ -198,35 +234,42 @@ export default function App() {
       disagree: filters.disagree,
       opp_riichi: filters.oppRiichi,
       menzen: filters.menzen,
+      adaptive: filters.adaptive,
     });
     try {
-      const response = await fetch(`/api/problem?${query}`);
+      const response = await fetch(`/api/problem?${query}`, { signal });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || response.statusText);
       setProblem(body);
+      setPractice(body.practice ?? null);
     } catch (e) {
+      if (signal?.aborted) return;
       setProblem(null);
       setError(String(e.message || e));
     } finally {
-      setBusy(false);
+      if (!signal?.aborted) setBusy(false);
     }
   }, [filters]);
 
   useEffect(() => {
-    load();
+    const controller = new AbortController();
+    load(controller.signal);
+    return () => controller.abort();
   }, [load]);
 
   const discard = async (code) => {
     setBusy(true);
+    setError(null);
     try {
       const response = await fetch("/api/answer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: problem.id, tile: code }),
+        body: JSON.stringify({ id: problem.id, tile: code, attempt_id: problem.attempt_id }),
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || response.statusText);
       setResult(body);
+      if (body.practice) setPractice(body.practice);
       setScore((s) => ({
         solved: s.solved + 1,
         aiMatch: s.aiMatch + (body.matches_ai ? 1 : 0),
@@ -255,7 +298,8 @@ export default function App() {
           푼 문제 {score.solved} · AI 일치 {score.aiMatch} · 평균 손실 {score.solved ? (score.lossSum / score.solved).toFixed(3) : "—"}
         </span>
       </header>
-      <Filters filters={filters} onChange={setFilters} />
+      <Filters filters={filters} onChange={setFilters} busy={busy} />
+      <PracticeStats practice={practice} />
       {error && <div className="error">{error}</div>}
       {problem && (
         <>

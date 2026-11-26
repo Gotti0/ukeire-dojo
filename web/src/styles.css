@@ -57,6 +57,17 @@ h1 {
   align-items: center;
 }
 
+.practice-stats {
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.practice-stats summary {
+  cursor: pointer;
+}
+
 .error {
   background: #fbe3dc;
   color: var(--bad);
