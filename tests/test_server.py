@@ -232,3 +232,23 @@ def test_refuses_public_bind_without_password(tmp_path, monkeypatch):
     monkeypatch.setenv(module.PASSWORD_ENV, "short")
     with pytest.raises(SystemExit, match="at least 12"):
         module.main()
+
+
+def test_static_files_skip_rate_limit_but_failed_auth_does_not(server):
+    """화면 한 번에 패 이미지 수십 장을 받으므로 인증된 정적 파일은 속도 제한에서 뺀다. 인증 실패는 계속 센다."""
+    Handler.password = "correct horse battery"
+    Handler.limiter = RateLimiter(rate=0.001, burst=3)
+    ok = auth_header("correct horse battery")
+    assert [status_of(f"{server}/", ok)[0] for _ in range(10)] == [200] * 10
+    assert [status_of(f"{server}/api/problem", ok)[0] for _ in range(4)] == [200, 200, 200, 429]
+    Handler.limiter = RateLimiter(rate=0.001, burst=3)
+    bad = auth_header("wrong password!!")
+    assert [status_of(f"{server}/", bad)[0] for _ in range(4)] == [401, 401, 401, 429]
+
+
+def test_cache_headers():
+    from ukeire_dojo.server import cache_control
+
+    assert "immutable" in cache_control("assets/index-B7aVWNGr.js")
+    assert cache_control("tiles/1m.png") == "private, max-age=86400"
+    assert cache_control("index.html") == "no-cache"

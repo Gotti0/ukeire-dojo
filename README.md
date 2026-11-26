@@ -25,7 +25,7 @@ python -m ukeire_dojo.server --db data/bank.sqlite   # http://127.0.0.1:8765
 .\scripts\serve-public.ps1   # 0.0.0.0:5173, 암호는 data\server-password.txt(처음 실행할 때 무작위로 만든다)
 ```
 - 외부 주소로 열 때는 서버가 암호(Basic 인증, 12자 이상) 없이는 시작하지 않는다.
-- IP별 속도 제한(초당 5회, 순간 30회), 요청 본문 4KB 제한, 소켓 시간 제한이 걸린다. 접속 기록은 `data\server-access.log`에 남는다.
+- API 요청과 인증 실패에 IP별 속도 제한(초당 5회, 순간 30회), 요청 본문 4KB 제한, 소켓 시간 제한이 걸린다. 접속 기록은 `data\server-access.log`에 남는다.
 - HTTP라서 암호가 평문으로 오간다. 다른 곳에 쓰는 암호를 쓰지 않는다. HTTPS가 필요하면 앞에 리버스 프록시를 둔다.
 - 공유기 포트 포워딩(TCP 5173 → 이 PC)과 Windows 방화벽 인바운드 허용은 직접 설정한다.
 
