@@ -1,3 +1,5 @@
 * text=auto eol=lf
 *.ps1 text eol=crlf
 *.gz binary
+*.bat text eol=crlf
+*.cmd text eol=crlf

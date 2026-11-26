@@ -17,5 +17,10 @@ if (-not (Test-Path $passwordFile)) {
 if (-not (Test-Path (Join-Path $root "web\dist\index.html"))) {
   Push-Location (Join-Path $root "web"); npm install --no-fund --no-audit; npm run build; Pop-Location
 }
-python -m ukeire_dojo.server --host 0.0.0.0 --port $Port --db $Db --password-file $passwordFile 2>&1 |
-  Tee-Object -FilePath (Join-Path $root "data\server-access.log") -Append
+# 서버는 접속 기록을 stderr(이 창)와 로그 파일에 직접 쓴다. stderr를 파이프로 받지 않으므로 Windows PowerShell 5.1의
+# "Stop일 때 stderr를 종료 오류로 바꾸는" 동작에도 걸리지 않는다.
+$ErrorActionPreference = "Continue"
+python -m ukeire_dojo.server --host 0.0.0.0 --port $Port --db $Db --password-file $passwordFile `
+  --log-file (Join-Path $root "data\server-access.log")
+# 서버가 오류로 끝났는지 serve-public.bat이 알 수 있게 종료 코드를 넘긴다.
+exit $LASTEXITCODE

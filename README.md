@@ -24,6 +24,8 @@ python -m ukeire_dojo.server --db data/bank.sqlite   # http://127.0.0.1:8765
 ```powershell
 .\scripts\serve-public.ps1   # 0.0.0.0:5173, 암호는 data\server-password.txt(처음 실행할 때 무작위로 만든다)
 ```
+- 탐색기에서 `serve-public.bat`을 더블클릭해도 같다. 창을 닫거나 `Ctrl+C`를 누르면 서버가 멈춘다. 오류로 끝나면 창이 닫히지 않고 기다린다.
+- 이미 서버가 떠 있으면 두 번째 실행은 "이미 사용 중"으로 바로 실패한다.
 - 외부 주소로 열 때는 서버가 암호(Basic 인증, 12자 이상) 없이는 시작하지 않는다.
 - API 요청과 인증 실패에 IP별 속도 제한(초당 5회, 순간 30회), 요청 본문 4KB 제한, 소켓 시간 제한이 걸린다. 접속 기록은 `data\server-access.log`에 남는다.
 - HTTP라서 암호가 평문으로 오간다. 다른 곳에 쓰는 암호를 쓰지 않는다. HTTPS가 필요하면 앞에 리버스 프록시를 둔다.

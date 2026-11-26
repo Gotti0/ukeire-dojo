@@ -252,3 +252,15 @@ def test_cache_headers():
     assert "immutable" in cache_control("assets/index-B7aVWNGr.js")
     assert cache_control("tiles/1m.png") == "private, max-age=86400"
     assert cache_control("index.html") == "no-cache"
+
+
+def test_second_server_cannot_share_the_port():
+    """Windows에서 SO_REUSEADDR 때문에 두 서버가 같은 포트를 나눠 잡던 문제를 막는다."""
+    from ukeire_dojo.server import Server
+
+    first = Server(("127.0.0.1", 0), Handler)
+    try:
+        with pytest.raises(OSError):
+            Server(("127.0.0.1", first.server_address[1]), Handler)
+    finally:
+        first.server_close()
