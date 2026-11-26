@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Epsilon main 빌드 전용 Maven 설정(scripts/build-epsilon-cuda.ps1이 mvnw -s 로만 쓴다). djl-rocm은 GitHub Packages에만 있어 공개 패키지여도 인증이 필요하다.
+  토큰은 이 파일에 쓰지 않고, 빌드 프로세스에만 GITHUB_ACTOR·GITHUB_TOKEN 환경 변수로 넘긴다(gh auth token, read:packages 필요).
+-->
+<settings>
+  <servers>
+    <server>
+      <id>github</id>
+      <username>${env.GITHUB_ACTOR}</username>
+      <password>${env.GITHUB_TOKEN}</password>
+    </server>
+  </servers>
+</settings>

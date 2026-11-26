@@ -1,0 +1,19 @@
+{
+  "models": [
+    {
+      "modelId": "epsilon-prism-v2",
+      "revision": "prism-v760",
+      "displayName": "Epsilon-Prism v760",
+      "version": "v760",
+      "series": "epsilon-prism",
+      "checkpoint": "../vendor/epsilon-release/epsilon-prism-v760",
+      "options": {
+        "device": "cpu"
+      }
+    }
+  ],
+  "defaultModel": {
+    "modelId": "epsilon-prism-v2",
+    "revision": "prism-v760"
+  }
+}
