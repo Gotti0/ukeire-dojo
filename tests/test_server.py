@@ -8,7 +8,7 @@ from http.server import ThreadingHTTPServer
 import pytest
 
 from ukeire_dojo.bank import SCHEMA
-from ukeire_dojo.server import Handler, grade, pick_problem, public_problem
+from ukeire_dojo.server import Handler, ProblemPicker, RateLimiter, grade, public_problem
 
 
 def player(hand, draw=None, riichi=False, river=(), melds=()):
@@ -96,13 +96,37 @@ def test_grade_accepts_red_five(db):
     assert grade(row, "5sr")["tile"] == "5s"
 
 
-def test_pick_problem_filters(db):
+def test_picker_filters(db):
     agree = insert(db, ai_best="C", eff_best=["C"], disagree=0, eff_loss=0.0, opp_riichi=0)
     hard = insert(db, ai_best="E", eff_best=["C"], disagree=1, eff_loss=0.05, opp_riichi=1, menzen=0)
-    assert pick_problem(db, disagree=False)["id"] == agree
-    assert pick_problem(db, min_loss=0.01)["id"] == hard
-    assert pick_problem(db, opp_riichi=True, menzen=False)["id"] == hard
-    assert pick_problem(db, min_loss=0.5) is None
+    picker = ProblemPicker(db)
+    assert picker.pick(disagree=False) == agree
+    assert picker.pick(min_loss=0.01) == hard
+    assert picker.pick(opp_riichi=True, menzen=False) == hard
+    assert picker.pick(min_loss=0.05) == hard, "min_loss는 이상(>=)이다"
+    assert picker.pick(min_loss=0.5) is None
+
+
+def test_picker_is_uniform_over_matches(db):
+    import random
+
+    ids = [insert(db, ai_best="E", eff_best=["C"], disagree=d, eff_loss=0.01 * i, opp_riichi=d)
+           for i in range(1, 7) for d in (0, 1)]
+    picker = ProblemPicker(db, rng=random.Random(0))
+    counts = {i: 0 for i in ids}
+    for _ in range(12000):
+        counts[picker.pick(min_loss=0.0)] += 1
+    # 칸(분류)이 달라도 문제마다 같은 확률로 뽑혀야 한다. 기대 1000회, 허용 ±15%.
+    assert all(850 <= c <= 1150 for c in counts.values()), counts
+
+
+def test_rate_limiter_refills():
+    now = [0.0]
+    limiter = RateLimiter(rate=2.0, burst=3, clock=lambda: now[0])
+    assert [limiter.allow("a") for _ in range(4)] == [True, True, True, False]
+    assert limiter.allow("b"), "IP마다 버킷이 따로다"
+    now[0] += 0.5  # 0.5초에 1개 찬다
+    assert limiter.allow("a") and not limiter.allow("a")
 
 
 @pytest.fixture
@@ -114,11 +138,16 @@ def server(db, tmp_path):
     (tmp_path / "secret.txt").write_text("secret", encoding="utf-8")
     Handler.db_path = tmp_path / "bank.sqlite"
     Handler.static_root = static
+    Handler.picker = ProblemPicker(db)
+    Handler.password = None
+    Handler.limiter = RateLimiter(rate=1000, burst=1000)
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
     yield f"http://127.0.0.1:{httpd.server_address[1]}"
     httpd.shutdown()
+    Handler.password = None
+    Handler.limiter = RateLimiter()
 
 
 def get(url):
@@ -145,3 +174,61 @@ def test_static_cannot_escape_root(server):
     assert status == 200 and b"secret" not in body
     status, body = get(f"{server}/%2e%2e/secret.txt")
     assert b"secret" not in body
+
+
+def auth_header(password):
+    import base64
+
+    return {"Authorization": "Basic " + base64.b64encode(f"anyone:{password}".encode()).decode()}
+
+
+def status_of(url, headers=None, data=None, method=None):
+    request = urllib.request.Request(url, headers=headers or {}, data=data, method=method)
+    try:
+        with urllib.request.urlopen(request) as response:
+            return response.status, dict(response.headers)
+    except urllib.error.HTTPError as e:
+        return e.code, dict(e.headers)
+
+
+def test_password_required_when_set(server):
+    Handler.password = "correct horse battery"
+    code, headers = status_of(f"{server}/api/problem")
+    assert code == 401 and headers["WWW-Authenticate"].startswith("Basic")
+    assert status_of(f"{server}/", auth_header("wrong password!!"))[0] == 401
+    assert status_of(f"{server}/", {"Authorization": "Basic !!!notbase64"})[0] == 401
+    assert status_of(f"{server}/api/problem", auth_header("correct horse battery"))[0] == 200
+    assert status_of(f"{server}/", auth_header("correct horse battery"))[0] == 200
+
+
+def test_rate_limit_returns_429(server):
+    Handler.limiter = RateLimiter(rate=0.001, burst=2)
+    codes = [status_of(f"{server}/api/problem")[0] for _ in range(3)]
+    assert codes == [200, 200, 429]
+
+
+def test_body_size_limit(server):
+    big = json.dumps({"id": 1, "tile": "E", "pad": "x" * 5000}).encode()
+    assert status_of(f"{server}/api/answer", data=big, method="POST")[0] == 413
+    assert status_of(f"{server}/api/answer", data=b"[1, 2]", method="POST")[0] == 400
+
+
+def test_security_headers(server):
+    code, headers = status_of(f"{server}/api/problem")
+    assert code == 200 and headers["X-Content-Type-Options"] == "nosniff" and headers["Cache-Control"] == "no-store"
+
+
+def test_refuses_public_bind_without_password(tmp_path, monkeypatch):
+    import sys
+
+    from ukeire_dojo import server as module
+
+    bank = tmp_path / "bank.sqlite"
+    sqlite3.connect(bank).executescript(SCHEMA)
+    monkeypatch.delenv(module.PASSWORD_ENV, raising=False)
+    monkeypatch.setattr(sys, "argv", ["server", "--db", str(bank), "--host", "0.0.0.0", "--port", "0"])
+    with pytest.raises(SystemExit, match="without a password"):
+        module.main()
+    monkeypatch.setenv(module.PASSWORD_ENV, "short")
+    with pytest.raises(SystemExit, match="at least 12"):
+        module.main()
