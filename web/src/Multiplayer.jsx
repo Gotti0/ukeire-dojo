@@ -155,21 +155,42 @@ export default function Multiplayer() {
   const [notice, setNotice] = useState("");
   const [streamStatus, setStreamStatus] = useState("");
   const [riichiMode, setRiichiMode] = useState(false);
+  const [hintState, setHintState] = useState(null);
+  const [hintBusy, setHintBusy] = useState(false);
+  const [hintError, setHintError] = useState("");
   const retryDelayRef = useRef(1000);
+  const hintControllerRef = useRef(null);
+  const currentRevRef = useRef(null);
 
   const resetSession = useCallback((message = "") => {
+    hintControllerRef.current?.abort();
+    hintControllerRef.current = null;
     saveSession(null);
     setSession(null);
     setRoom(null);
     setStreamStatus("");
+    setHintState(null);
+    setHintBusy(false);
+    setHintError("");
     syncRoomQuery(null);
     if (message) setError(message);
   }, []);
 
+  const matchNumber = room?.match?.matchNumber ?? null;
+  const matchPhase = room?.match?.phase ?? null;
   const decisionRevision = room?.match?.decision?.revision ?? null;
+  currentRevRef.current = decisionRevision;
+
   useEffect(() => {
+    hintControllerRef.current?.abort();
+    hintControllerRef.current = null;
     setRiichiMode(false);
-  }, [decisionRevision]);
+    setHintState(null);
+    setHintBusy(false);
+    setHintError("");
+  }, [matchNumber, matchPhase, decisionRevision]);
+
+  useEffect(() => () => hintControllerRef.current?.abort(), []);
 
   useEffect(() => {
     if (!session) return;
@@ -312,6 +333,44 @@ export default function Multiplayer() {
     }
   };
 
+  const requestHint = async () => {
+    const decision = room?.match?.decision;
+    if (!session || !decision || hintBusy) return;
+    const requestedRev = decision.revision;
+    hintControllerRef.current?.abort();
+    const controller = new AbortController();
+    hintControllerRef.current = controller;
+    setHintBusy(true);
+    setHintError("");
+    try {
+      const response = await fetch(`/api/rooms/${encodeURIComponent(session.roomCode)}/hint`, {
+        method: "POST",
+        headers: {
+          "X-Player-Token": session.token,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ revision: requestedRev }),
+        signal: controller.signal,
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || response.statusText);
+      }
+      if (!controller.signal.aborted && currentRevRef.current === requestedRev && data.revision === requestedRev) {
+        setHintState(data);
+      }
+    } catch (err) {
+      if (!controller.signal.aborted && currentRevRef.current === requestedRev) {
+        setHintError(err.message || "타패 추천을 불러오지 못했습니다.");
+      }
+    } finally {
+      if (hintControllerRef.current === controller) {
+        hintControllerRef.current = null;
+        setHintBusy(false);
+      }
+    }
+  };
+
   if (!session || !room) {
     return (
       <section className="mp-panel">
@@ -450,12 +509,17 @@ export default function Multiplayer() {
 
   const eventSummary = lastEventText(match, room);
   const settlement = match.settlement;
+  const activeHint = decision && hintState && hintState.revision === decision.revision ? hintState : null;
+  const firstResult = room.firstMatchResult;
+  const secondResult = room.secondMatchResult;
 
   return (
     <section className="mp-panel">
       <div className="mp-match-bar">
         <strong>
-          방 {room.roomCode} · {match.matchNumber}경기 · 동{match.round.kyoku}국 {match.round.honba}본장
+          방 {room.roomCode} · {match.matchNumber}경기
+          {match.matchNumber === 1 ? " (AI 도움 없음)" : " (동일 패산 · 타패 추천 가능)"} ·{" "}
+          동{match.round.kyoku}국 {match.round.honba}본장
         </strong>
         <span className="muted">
           내 자풍: {WINDS[(match.table.seat - match.table.dealer + 4) % 4]}가
@@ -497,7 +561,10 @@ export default function Multiplayer() {
             <Tile
               key={`${code}-${i}`}
               code={code}
-              marks={riichiMode && action ? ["riichi-cand"] : []}
+              marks={[
+                riichiMode && action && "riichi-cand",
+                !riichiMode && activeHint && code === activeHint.bestTile && "ai-best",
+              ].filter(Boolean)}
               disabled={busy || !decision || !action}
               onClick={() => action && withRoomPost("action", { revision: decision.revision, action: action.code })}
             />
@@ -510,7 +577,10 @@ export default function Multiplayer() {
             <Tile
               key="draw"
               code={match.table.draw}
-              marks={riichiMode && drawAction ? ["riichi-cand"] : []}
+              marks={[
+                riichiMode && drawAction && "riichi-cand",
+                !riichiMode && activeHint && match.table.draw === activeHint.bestTile && "ai-best",
+              ].filter(Boolean)}
               disabled={busy || !decision || !drawAction}
               onClick={() => drawAction && withRoomPost("action", { revision: decision.revision, action: drawAction.code })}
             />
@@ -524,8 +594,18 @@ export default function Multiplayer() {
         </div>
       )}
 
-      {decision && (riichiActions.length > 0 || specialActions.length > 0) && (
+      {decision && (match.hintAllowed || riichiActions.length > 0 || specialActions.length > 0) && (
         <div className="action-bar">
+          {match.hintAllowed && (
+            <button
+              type="button"
+              className="btn-hint"
+              disabled={busy || hintBusy}
+              onClick={requestHint}
+            >
+              {hintBusy ? "타패 추천 계산 중…" : "AI 타패 추천 보기"}
+            </button>
+          )}
           {riichiActions.length > 0 && (
             <button
               type="button"
@@ -547,6 +627,32 @@ export default function Multiplayer() {
               {actionLabel(a)}
             </button>
           ))}
+        </div>
+      )}
+
+      {hintError && <div className="error">{hintError}</div>}
+
+      {activeHint && (
+        <div className="hint-panel">
+          <div className="verdict">
+            AI 추천 타패: <Tile code={activeHint.bestTile} small /> {tileName(activeHint.bestTile)}
+          </div>
+          <p className="muted small-text">
+            최종 타패는 손패에서 직접 선택합니다. 손실이 0.000에 가까울수록 AI 최선과 같습니다.
+          </p>
+          <table>
+            <thead>
+              <tr><th>버릴 패</th><th>AI 손실</th></tr>
+            </thead>
+            <tbody>
+              {activeHint.candidates.map((row) => (
+                <tr key={row.tile} className={row.tile === activeHint.bestTile ? "ai-row" : ""}>
+                  <td><Tile code={row.tile} small /> {tileName(row.tile)}</td>
+                  <td>{row.loss.toFixed(3)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
@@ -595,7 +701,7 @@ export default function Multiplayer() {
         </div>
       )}
 
-      {match.phase === "MATCH_END" && settlement && (
+      {room.status === "MATCH_END" && settlement && (
         <div className="result">
           <div className="verdict good">1경기 동풍전 종료</div>
           <table>
@@ -621,8 +727,65 @@ export default function Multiplayer() {
             </tbody>
           </table>
           <p className="muted small-text">
-            동일 패산 2경기 재대국과 요청형 타패 추천은 다음 단계(T10)에서 연결됩니다.
+            같은 좌석·25,000점·동일 국·본장 패산으로 2경기를 시작하며, 2경기에서는 자기 차례에 AI 타패 추천을 볼 수 있습니다.
           </p>
+          <div className="mp-lobby-actions">
+            {room.canStartReplay ? (
+              <button type="button" className="btn-start" disabled={busy} onClick={() => withRoomPost("replay")}>
+                같은 패산으로 2경기 시작
+              </button>
+            ) : (
+              <span className="muted">방장이 같은 패산으로 2경기를 시작할 때까지 기다리는 중…</span>
+            )}
+            <button type="button" onClick={() => resetSession()}>
+              방 나가기
+            </button>
+          </div>
+        </div>
+      )}
+
+      {room.status === "SERIES_END" && firstResult && secondResult && (
+        <div className="result">
+          <div className="verdict good">1경기 vs 2경기 결과 비교</div>
+          <p className="muted small-text">
+            동일한 국·본장 패산에서 AI 도움 없이 둔 1경기와 요청형 타패 추천을 참고해 둔 2경기의 결과입니다.
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>좌석</th>
+                <th>참가자</th>
+                <th>1경기 점수 (순위)</th>
+                <th>2경기 점수 (순위)</th>
+                <th>점수 변화</th>
+                <th>순위 변화</th>
+              </tr>
+            </thead>
+            <tbody>
+              {room.seats.map((slot) => {
+                const s1 = firstResult.scores[slot.seat];
+                const r1 = firstResult.ranks[slot.seat];
+                const s2 = secondResult.scores[slot.seat];
+                const r2 = secondResult.ranks[slot.seat];
+                const scoreDiff = s2 - s1;
+                const rankDiff = r1 - r2;
+                return (
+                  <tr key={slot.seat} className={slot.seat === room.mySeat ? "ai-row" : ""}>
+                    <td>{WINDS[slot.seat]}가</td>
+                    <td>{slot.name || `좌석 ${slot.seat + 1}`}</td>
+                    <td>{s1.toLocaleString()} ({r1}위)</td>
+                    <td>{s2.toLocaleString()} ({r2}위)</td>
+                    <td className={scoreDiff > 0 ? "delta-up" : scoreDiff < 0 ? "delta-down" : ""}>
+                      {scoreDiff > 0 ? `+${scoreDiff.toLocaleString()}` : scoreDiff.toLocaleString()}
+                    </td>
+                    <td className={rankDiff > 0 ? "delta-up" : rankDiff < 0 ? "delta-down" : ""}>
+                      {rankDiff > 0 ? `▲${rankDiff}` : rankDiff < 0 ? `▼${-rankDiff}` : "—"}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
           <button type="button" className="next" onClick={() => resetSession()}>
             방 목록으로 돌아가기
           </button>

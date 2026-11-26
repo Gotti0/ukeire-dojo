@@ -222,7 +222,7 @@ class Room:
     host_seat: int
     lock: threading.RLock = field(default_factory=threading.RLock)
     cond: threading.Condition = field(init=False)
-    status: str = "LOBBY"  # "LOBBY" | "PLAYING" | "MATCH_END"
+    status: str = "LOBBY"  # "LOBBY" | "PLAYING" | "MATCH_END" | "SERIES_END"
     match_number: int = 1
     version: int = 1
     seats: list[SeatSlot] = field(default_factory=lambda: [SeatSlot(i) for i in range(_MAX_PLAYERS)])
@@ -230,6 +230,8 @@ class Room:
     pending_revision: int | None = None
     pending_submissions: dict[int, int] = field(default_factory=dict)
     round_end_confirmations: set[int] = field(default_factory=set)
+    first_match_result: dict | None = None
+    second_match_result: dict | None = None
 
     def __post_init__(self) -> None:
         self.cond = threading.Condition(self.lock)
@@ -455,11 +457,60 @@ class RoomManager:
                     s.connected = True
             room.status = "PLAYING"
             room.match_number = 1
+            room.pending_revision = None
             room.pending_submissions.clear()
             room.round_end_confirmations.clear()
             self._drive_match(room)
             self._bump(room)
             return self._snapshot(room, slot.seat)
+
+    def start_replay(self, code: str, token: str | None) -> dict:
+        room = self._get_room(code)
+        with room.lock:
+            slot = self._require_seat(room, token)
+            if slot.seat != room.host_seat:
+                raise RoomError(HTTPStatus.FORBIDDEN, "방장만 두 번째 경기를 시작할 수 있습니다.")
+            if room.match_number == 2 and room.status in ("PLAYING", "SERIES_END"):
+                return self._snapshot(room, slot.seat)
+            if room.status != "MATCH_END" or room.match_number != 1:
+                raise RoomError(HTTPStatus.CONFLICT, "첫 번째 경기가 끝난 뒤에만 두 번째 경기를 시작할 수 있습니다.")
+            self.client.call("start_replay", roomId=room.code)
+            for s in room.seats:
+                if s.kind == "human":
+                    if s.seat == slot.seat:
+                        self._mark_reconnected(room, s)
+                    elif not s.connected:
+                        # 2경기 시작 시점까지 미복귀한 사람은 원래 좌석·토큰을 유지한 채 AI 대타로 시작한다.
+                        s.ai_takeover = True
+                    else:
+                        s.ai_takeover = False
+            room.match_number = 2
+            room.status = "PLAYING"
+            room.pending_revision = None
+            room.pending_submissions.clear()
+            room.round_end_confirmations.clear()
+            self._drive_match(room)
+            self._bump(room)
+            return self._snapshot(room, slot.seat)
+
+    def get_discard_hint(self, code: str, token: str | None, revision: int | None = None) -> dict:
+        room = self._get_room(code)
+        with room.lock:
+            slot = self._require_seat(room, token)
+            if room.match_number != 2:
+                raise RoomError(HTTPStatus.FORBIDDEN, "타패 추천은 두 번째 경기에서만 사용할 수 있습니다.")
+            if room.status != "PLAYING" or room.pending is None or room.pending["phase"] != "DECISIONS":
+                raise RoomError(HTTPStatus.CONFLICT, "현재 타패 추천을 요청할 수 있는 상태가 아닙니다.")
+            current_rev = room.pending["revision"]
+            if revision is not None and revision != current_rev:
+                raise RoomError(HTTPStatus.CONFLICT, "이미 지나간 선택 시점입니다.")
+            if slot.seat not in room.pending["pendingSeats"] or slot.seat in room.pending_submissions:
+                raise RoomError(HTTPStatus.CONFLICT, "지금은 내 타패 차례가 아닙니다.")
+            seat_view = self.client.call("seat_state", roomId=room.code, matchIndex=2, seat=slot.seat)
+            decision = seat_view.get("decision")
+            if not decision or not any(a["type"] == "DAHAI" for a in decision.get("actions", ())):
+                raise RoomError(HTTPStatus.CONFLICT, "현재 타패를 고르는 차례가 아닙니다.")
+            return self.client.call("discard_hint", roomId=room.code, matchIndex=2, seat=slot.seat)
 
     def submit_action(self, code: str, token: str | None, revision: int, action: int) -> dict:
         room = self._get_room(code)
@@ -613,7 +664,20 @@ class RoomManager:
             room.pending = pending
             phase = pending["phase"]
             if phase == "MATCH_END":
-                room.status = "MATCH_END"
+                settlement = pending["settlement"]
+                summary = {
+                    "matchNumber": room.match_number,
+                    "scores": list(settlement["scores"]),
+                    "ranks": list(settlement["ranks"]),
+                    "finalRound": dict(settlement["round"]),
+                    "outcome": settlement["outcome"],
+                }
+                if room.match_number == 1:
+                    room.first_match_result = summary
+                    room.status = "MATCH_END"
+                else:
+                    room.second_match_result = summary
+                    room.status = "SERIES_END"
                 room.pending_submissions.clear()
                 room.round_end_confirmations.clear()
                 return
@@ -673,13 +737,21 @@ class RoomManager:
             for s in room.seats
         ]
         match_payload = None
-        if room.status in ("PLAYING", "MATCH_END"):
+        if room.status in ("PLAYING", "MATCH_END", "SERIES_END"):
             match_payload = self.client.call("seat_state", roomId=room.code, matchIndex=room.match_number, seat=my_seat)
             submitted = my_seat in room.pending_submissions
             decision = match_payload.get("decision")
             match_payload["decisionSubmitted"] = submitted
             match_payload["waitingForOthers"] = (
                 match_payload["phase"] == "DECISIONS" and (decision is None or submitted)
+            )
+            match_payload["hintAllowed"] = (
+                room.match_number == 2
+                and room.status == "PLAYING"
+                and match_payload["phase"] == "DECISIONS"
+                and not submitted
+                and decision is not None
+                and any(a["type"] == "DAHAI" for a in decision.get("actions", ()))
             )
             if submitted:
                 match_payload["decision"] = None
@@ -698,5 +770,8 @@ class RoomManager:
             "seats": seats_public,
             "canStart": can_start,
             "startBlockReason": start_reason,
+            "canStartReplay": room.status == "MATCH_END" and room.match_number == 1 and my_seat == room.host_seat,
+            "firstMatchResult": room.first_match_result,
+            "secondMatchResult": room.second_match_result,
             "match": match_payload,
         }

@@ -24,7 +24,8 @@ public final class EastMatchTest {
     preservesRoundsAcrossDifferentPaths();
     settlesEastFourAndBust();
     hostsSeatIsolatedScriptedMatch();
-    System.out.println("EastMatchTest: 4 checks passed");
+    evaluatesReplayDiscardHintsAndRejectsMatchOne();
+    System.out.println("EastMatchTest: 5 checks passed");
   }
 
   private static void rejectsStaleAndInvalidChoices() {
@@ -224,6 +225,89 @@ public final class EastMatchTest {
     var scores = (List<Integer>) settlement.get("scores");
     equal(100000, scores.stream().mapToInt(Integer::intValue).sum(), "final total points differed");
     host.handle(JsonParser.parseString("{\"cmd\":\"delete_series\",\"roomId\":\"ROOM01\"}").getAsJsonObject());
+  }
+
+  @SuppressWarnings("unchecked")
+  private static void evaluatesReplayDiscardHintsAndRejectsMatchOne() {
+    var host = LiveMatchHost.scripted();
+    var created = (Map<String, Object>) host.handle(JsonParser.parseString(
+        "{\"cmd\":\"create_series\",\"roomId\":\"ROOM02\"}").getAsJsonObject());
+    // 1경기에서는 추천을 거부해야 한다.
+    expect(IllegalArgumentException.class, () -> host.handle(JsonParser.parseString(
+        "{\"cmd\":\"discard_hint\",\"roomId\":\"ROOM02\",\"seat\":0,\"matchIndex\":1}").getAsJsonObject()));
+    // 1경기 완료 전에는 2경기를 시작할 수 없다.
+    expect(IllegalStateException.class, () -> host.handle(JsonParser.parseString(
+        "{\"cmd\":\"start_replay\",\"roomId\":\"ROOM02\"}").getAsJsonObject()));
+
+    var firstSeat0 = (Map<String, Object>) host.handle(JsonParser.parseString(
+        "{\"cmd\":\"seat_state\",\"roomId\":\"ROOM02\",\"seat\":0,\"matchIndex\":1}").getAsJsonObject());
+    var firstTable0 = (Map<String, Object>) firstSeat0.get("table");
+
+    // 1경기 완주
+    int steps = 0;
+    Map<String, Object> pending = created;
+    while (!"MATCH_END".equals(pending.get("phase"))) {
+      if ("ROUND_END".equals(pending.get("phase"))) {
+        var rnd = (Map<String, Object>) pending.get("round");
+        pending = (Map<String, Object>) host.handle(JsonParser.parseString(
+            String.format("{\"cmd\":\"next_round\",\"roomId\":\"ROOM02\",\"matchIndex\":1,\"kyoku\":%s,\"honba\":%s}",
+                rnd.get("kyoku"), rnd.get("honba"))).getAsJsonObject());
+        continue;
+      }
+      var seats = (List<Integer>) pending.get("pendingSeats");
+      var actions = new StringBuilder("{");
+      for (int i = 0; i < seats.size(); i++) {
+        int s = seats.get(i);
+        var choice = (Map<String, Object>) host.handle(JsonParser.parseString(
+            String.format("{\"cmd\":\"ai_choice\",\"roomId\":\"ROOM02\",\"matchIndex\":1,\"seat\":%d}", s)).getAsJsonObject());
+        if (i > 0) actions.append(',');
+        actions.append('"').append(s).append("\":").append(choice.get("action"));
+      }
+      actions.append('}');
+      pending = (Map<String, Object>) host.handle(JsonParser.parseString(
+          String.format("{\"cmd\":\"commit\",\"roomId\":\"ROOM02\",\"matchIndex\":1,\"revision\":%s,\"actions\":%s}",
+              pending.get("revision"), actions)).getAsJsonObject());
+      steps++;
+      check(steps < 5000, "first match did not terminate");
+    }
+
+    // 2경기 시작 및 초기 국면·점수·배패·도라 일치 검증
+    var replayPending = (Map<String, Object>) host.handle(JsonParser.parseString(
+        "{\"cmd\":\"start_replay\",\"roomId\":\"ROOM02\"}").getAsJsonObject());
+    equal(2, replayPending.get("matchNumber"), "replay matchNumber must be 2");
+    equal("DECISIONS", replayPending.get("phase"), "replay did not start in DECISIONS");
+    var replaySeat0 = (Map<String, Object>) host.handle(JsonParser.parseString(
+        "{\"cmd\":\"seat_state\",\"roomId\":\"ROOM02\",\"seat\":0,\"matchIndex\":2}").getAsJsonObject());
+    var replayTable0 = (Map<String, Object>) replaySeat0.get("table");
+    equal(firstTable0.get("hand"), replayTable0.get("hand"), "replay opening hand differed from first match");
+    equal(firstTable0.get("draw"), replayTable0.get("draw"), "replay opening draw differed from first match");
+    equal(firstTable0.get("dora"), replayTable0.get("dora"), "replay opening dora differed from first match");
+    for (var p : (List<Map<String, Object>>) replayTable0.get("players")) {
+      equal(25000, p.get("score"), "replay did not reset scores to 25000");
+    }
+
+    // 2경기 동가 차례 추천 검증 및 상태 불변 확인
+    var hint = (Map<String, Object>) host.handle(JsonParser.parseString(
+        "{\"cmd\":\"discard_hint\",\"roomId\":\"ROOM02\",\"seat\":0,\"matchIndex\":2}").getAsJsonObject());
+    equal(2, hint.get("matchNumber"), "hint matchNumber differed");
+    equal(replaySeat0.get("revision"), hint.get("revision"), "hint revision differed");
+    var candidates = (List<Map<String, Object>>) hint.get("candidates");
+    check(!candidates.isEmpty(), "hint candidates empty");
+    equal(0.0, candidates.getFirst().get("loss"), "best candidate loss must be 0.0");
+    equal(candidates.getFirst().get("tile"), hint.get("bestTile"), "bestTile must match first candidate");
+    for (var c : candidates) {
+      double loss = ((Number) c.get("loss")).doubleValue();
+      double val = ((Number) c.get("value")).doubleValue();
+      check(Double.isFinite(loss) && loss >= 0.0 && Double.isFinite(val), "non-finite or negative hint value/loss");
+    }
+    var replayAfterHint = (Map<String, Object>) host.handle(JsonParser.parseString(
+        "{\"cmd\":\"seat_state\",\"roomId\":\"ROOM02\",\"seat\":0,\"matchIndex\":2}").getAsJsonObject());
+    equal(replaySeat0, replayAfterHint, "discard_hint mutated seat_state");
+
+    // 대기 좌석의 추천 요청은 거부
+    expect(IllegalStateException.class, () -> host.handle(JsonParser.parseString(
+        "{\"cmd\":\"discard_hint\",\"roomId\":\"ROOM02\",\"seat\":1,\"matchIndex\":2}").getAsJsonObject()));
+    host.handle(JsonParser.parseString("{\"cmd\":\"delete_series\",\"roomId\":\"ROOM02\"}").getAsJsonObject());
   }
 
   private static EastMatch.Settlement settle(RoundStart start, RoundOutcome result) {

@@ -51,6 +51,8 @@ public final class LiveMatchHost {
   private interface BotPolicy extends AutoCloseable {
     int choose(SeatView view, Decisions decisions, int slot);
 
+    float[] evaluateValues(SeatView view, Decisions decisions, int slot);
+
     @Override
     default void close() {}
   }
@@ -94,6 +96,17 @@ public final class LiveMatchHost {
     }
 
     @Override
+    public float[] evaluateValues(SeatView view, Decisions decisions, int slot) {
+      batch.clear();
+      int row = writer.capture(view, decisions, slot, batch);
+      float[] values = policy.evaluate(observation.bind(batch, row)).values();
+      if (values == null || values.length != decisions.legalCount(slot)) {
+        throw new IllegalStateException("unexpected policy value array length");
+      }
+      return values;
+    }
+
+    @Override
     public void close() {
       try {
         policy.close();
@@ -120,6 +133,16 @@ public final class LiveMatchHost {
       }
       if (discard != null) return discard;
       return pass != null ? pass : decisions.legal(slot, 0);
+    }
+
+    @Override
+    public float[] evaluateValues(SeatView view, Decisions decisions, int slot) {
+      int count = decisions.legalCount(slot);
+      float[] values = new float[count];
+      for (int i = 0; i < count; i++) {
+        values[i] = -0.01f * i;
+      }
+      return values;
     }
   }
 
@@ -193,6 +216,7 @@ public final class LiveMatchHost {
         seriesById.put(roomId, new EastSeries());
         yield pendingInfo(matchOf(roomId, 1), 1);
       }
+      case "start_replay" -> pendingInfo(matchOf(roomId, 2), 2);
       case "delete_series" -> {
         seriesById.remove(roomId);
         yield Map.of("deleted", true);
@@ -210,6 +234,11 @@ public final class LiveMatchHost {
         int matchIndex = optInt(req, "matchIndex", 1);
         int seat = req.get("seat").getAsInt();
         yield aiChoice(matchOf(roomId, matchIndex), seat);
+      }
+      case "discard_hint" -> {
+        int matchIndex = optInt(req, "matchIndex", 1);
+        int seat = req.get("seat").getAsInt();
+        yield discardHint(roomId, seat, matchIndex);
       }
       case "commit" -> {
         int matchIndex = optInt(req, "matchIndex", 1);
@@ -264,6 +293,79 @@ public final class LiveMatchHost {
     Map<String, Object> out = new LinkedHashMap<>();
     out.put("revision", match.revision());
     out.put("action", action);
+    return out;
+  }
+
+  private Map<String, Object> discardHint(String roomId, int seat, int matchIndex) {
+    if (matchIndex != 2) {
+      throw new IllegalArgumentException("discard hints are only available in the second match");
+    }
+    EastMatch match = matchOf(roomId, matchIndex);
+    if (match.phase() != EastMatch.Phase.DECISIONS) {
+      throw new IllegalStateException("the match is not waiting for decisions");
+    }
+    Decisions decisions = match.decisions();
+    int slot = decisions.slotOf(seat);
+    if (slot == -1) {
+      throw new IllegalStateException("seat " + seat + " has no pending decision");
+    }
+    List<Integer> discardIndices = new ArrayList<>();
+    for (int i = 0; i < decisions.legalCount(slot); i++) {
+      if (Action.of(decisions.legal(slot, i)).type() == Action.Type.DAHAI) {
+        discardIndices.add(i);
+      }
+    }
+    if (discardIndices.isEmpty()) {
+      throw new IllegalStateException("no legal discard actions for seat " + seat);
+    }
+    float[] values = decisions.legalCount(slot) == 1
+        ? new float[] {0.0f}
+        : bot.evaluateValues(match.seatView(seat), decisions, slot);
+    float best = Float.NEGATIVE_INFINITY;
+    for (int i : discardIndices) {
+      float v = values[i];
+      if (!Float.isFinite(v)) {
+        throw new IllegalStateException("non-finite policy value for discard candidate");
+      }
+      if (v > best) best = v;
+    }
+
+    record CandidateScore(String tile, int code, boolean tsumogiri, float value) {}
+    Map<String, CandidateScore> merged = new LinkedHashMap<>();
+    for (int i : discardIndices) {
+      int code = decisions.legal(slot, i);
+      Action a = Action.of(code);
+      String tile = TileCode.of(a.tile(), a.selection().red());
+      float v = values[i];
+      CandidateScore prev = merged.get(tile);
+      if (prev == null || v > prev.value()) {
+        merged.put(tile, new CandidateScore(tile, code, a.selection().tsumogiri(), v));
+      }
+    }
+
+    List<Map<String, Object>> candidates = new ArrayList<>(merged.size());
+    for (CandidateScore c : merged.values()) {
+      double loss = Math.max(0.0, (double) best - (double) c.value());
+      if (!Double.isFinite(loss)) {
+        throw new IllegalStateException("non-finite discard loss");
+      }
+      Map<String, Object> item = new LinkedHashMap<>();
+      item.put("tile", c.tile());
+      item.put("code", c.code());
+      item.put("tsumogiri", c.tsumogiri());
+      item.put("value", (double) c.value());
+      item.put("loss", loss);
+      candidates.add(item);
+    }
+    candidates.sort(
+        Comparator.<Map<String, Object>>comparingDouble(m -> (Double) m.get("loss"))
+            .thenComparingInt(m -> TileCode.order((String) m.get("tile"))));
+
+    Map<String, Object> out = new LinkedHashMap<>();
+    out.put("matchNumber", 2);
+    out.put("revision", match.revision());
+    out.put("bestTile", candidates.getFirst().get("tile"));
+    out.put("candidates", candidates);
     return out;
   }
 
