@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import Explanation from "./Explanation.jsx";
-import { doraOf, sortTiles, tileImage, tileName, tileType } from "./tiles.js";
+import Multiplayer from "./Multiplayer.jsx";
+import { Melds, Tile } from "./TileView.jsx";
+import { doraOf, sortTiles, tileName, tileType } from "./tiles.js";
 
 const WINDS = "동남서북";
 const ROUND_WIND = { E: "동", S: "남", W: "서", N: "북" };
@@ -12,31 +14,6 @@ const PRACTICE_LABELS = {
   open_hand: "울기 손",
   closed_hand: "문전 손",
 };
-
-function Tile({ code, small, dim, sideways, onClick, marks = [], disabled }) {
-  const className = ["tile", small && "small", dim && "dim", sideways && "sideways", ...marks].filter(Boolean).join(" ");
-  const img = <img src={tileImage(code)} alt={tileName(code)} title={tileName(code)} draggable={false} />;
-  if (!onClick) return <span className={className}>{img}</span>;
-  return (
-    <button type="button" className={className} onClick={onClick} disabled={disabled} aria-label={`${tileName(code)} 버리기`}>
-      {img}
-    </button>
-  );
-}
-
-function Melds({ melds }) {
-  return (
-    <span className="melds">
-      {melds.map((meld, i) => (
-        <span className="meld" key={i}>
-          {meld.tiles.map((t, j) => (
-            <Tile key={j} code={meld.type === "ANKAN" && (j === 0 || j === 3) ? "back" : t} small sideways={j === meld.calledIndex} />
-          ))}
-        </span>
-      ))}
-    </span>
-  );
-}
 
 function Seat({ problem, seat, position }) {
   const player = problem.players[seat];
@@ -218,7 +195,18 @@ function Filters({ filters, onChange, busy }) {
   );
 }
 
+function initialMode() {
+  if (new URLSearchParams(window.location.search).get("room")) return "multiplayer";
+  try {
+    if (sessionStorage.getItem("ukeire_mp_session")) return "multiplayer";
+  } catch {
+    // 무시한다.
+  }
+  return "trainer";
+}
+
 export default function App() {
+  const [mode, setMode] = useState(initialMode);
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const [problem, setProblem] = useState(null);
   const [result, setResult] = useState(null);
@@ -255,10 +243,11 @@ export default function App() {
   }, [filters]);
 
   useEffect(() => {
+    if (mode !== "trainer") return undefined;
     const controller = new AbortController();
     load(controller.signal);
     return () => controller.abort();
-  }, [load]);
+  }, [load, mode]);
 
   const discard = async (code) => {
     setBusy(true);
@@ -286,35 +275,60 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (mode !== "trainer") return undefined;
     const onKey = (e) => {
       if (e.key === "Enter" && result && !busy && !e.target.closest?.("button, select, input, summary")) load();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [result, busy, load]);
+  }, [mode, result, busy, load]);
 
   return (
     <div className="app">
       <header>
         <h1>ukeire-dojo</h1>
-        <span className="muted">
-          푼 문제 {score.solved} · AI 일치 {score.aiMatch} · 평균 손실 {score.solved ? (score.lossSum / score.solved).toFixed(3) : "—"}
-        </span>
+        <nav className="mode-tabs" aria-label="모드 전환">
+          <button
+            type="button"
+            className={mode === "trainer" ? "tab active" : "tab"}
+            onClick={() => setMode("trainer")}
+          >
+            패효율 트레이너
+          </button>
+          <button
+            type="button"
+            className={mode === "multiplayer" ? "tab active" : "tab"}
+            onClick={() => setMode("multiplayer")}
+          >
+            동풍전 멀티플레이
+          </button>
+        </nav>
+        {mode === "trainer" && (
+          <span className="muted">
+            푼 문제 {score.solved} · AI 일치 {score.aiMatch} · 평균 손실 {score.solved ? (score.lossSum / score.solved).toFixed(3) : "—"}
+          </span>
+        )}
       </header>
-      <Filters filters={filters} onChange={setFilters} busy={busy} />
-      <PracticeStats practice={practice} />
-      {error && <div className="error">{error}</div>}
-      {problem && (
+      {mode === "multiplayer" ? (
+        <Multiplayer />
+      ) : (
         <>
-          <TableView problem={problem} />
-          <div className="prompt">{result ? "결과" : "무엇을 버릴까요?"}</div>
-          <Hand problem={problem} result={result} onDiscard={discard} busy={busy} />
-          {problem.players[problem.seat].melds.length > 0 && (
-            <div className="my-melds">
-              울기 <Melds melds={problem.players[problem.seat].melds} />
-            </div>
+          <Filters filters={filters} onChange={setFilters} busy={busy} />
+          <PracticeStats practice={practice} />
+          {error && <div className="error">{error}</div>}
+          {problem && (
+            <>
+              <TableView problem={problem} />
+              <div className="prompt">{result ? "결과" : "무엇을 버릴까요?"}</div>
+              <Hand problem={problem} result={result} onDiscard={discard} busy={busy} />
+              {problem.players[problem.seat].melds.length > 0 && (
+                <div className="my-melds">
+                  울기 <Melds melds={problem.players[problem.seat].melds} />
+                </div>
+              )}
+              {result && <Result result={result} onNext={load} provider={provider} onProviderChange={setProvider} />}
+            </>
           )}
-          {result && <Result result={result} onNext={load} provider={provider} onProviderChange={setProvider} />}
         </>
       )}
       <footer className="muted small-text">
