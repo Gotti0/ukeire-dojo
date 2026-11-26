@@ -76,13 +76,12 @@ def test_lobby_validation_seats_leave_and_host_succession(live_server):
     assert code == 201
     room_code = host["roomCode"]
 
-    # 1인 상태에서는 시작 불가
+    # 1인 상태에서는 별도 준비 없이도 시작 가능
+    assert host["state"]["canStart"] is True
     st, _ = req_json(f"{base}/api/rooms/{room_code}/ready", method="POST", token=host["token"], body={"ready": True})
     assert st == 200
-    st, err = req_json(f"{base}/api/rooms/{room_code}/start", method="POST", token=host["token"], body={})
-    assert st == 409 and "2명" in err["error"]
 
-    # 2번째 참가자 입장 및 좌석 이동
+    # 2번째 참가자 입장 및 좌석 이동 (2인 이상이면 미준비 시 시작 불가)
     st, p2 = req_json(f"{base}/api/rooms/{room_code}/join", method="POST", body={"name": "손님"})
     assert st == 200 and p2["seat"] == 1
     st, moved = req_json(f"{base}/api/rooms/{room_code}/seat", method="POST", token=p2["token"], body={"seat": 3})
@@ -113,9 +112,9 @@ def test_lobby_validation_seats_leave_and_host_succession(live_server):
     assert st == 404
 
 
-def test_player_counts_2_3_4_and_seat_isolation(live_server):
+def test_player_counts_1_to_4_and_seat_isolation(live_server):
     base, _ = live_server
-    for human_count in (2, 3, 4):
+    for human_count in (1, 2, 3, 4):
         _, host = req_json(f"{base}/api/rooms", method="POST", body={"name": "P0"})
         room_code = host["roomCode"]
         players = [host]
@@ -125,8 +124,9 @@ def test_player_counts_2_3_4_and_seat_isolation(live_server):
         if human_count == 4:
             st, _ = req_json(f"{base}/api/rooms/{room_code}/join", method="POST", body={"name": "P4"})
             assert st == 409
-        for p in players:
-            req_json(f"{base}/api/rooms/{room_code}/ready", method="POST", token=p["token"], body={"ready": True})
+        if human_count >= 2:
+            for p in players:
+                req_json(f"{base}/api/rooms/{room_code}/ready", method="POST", token=p["token"], body={"ready": True})
         st, started = req_json(f"{base}/api/rooms/{room_code}/start", method="POST", token=host["token"], body={})
         assert st == 200
         kinds = [s["kind"] for s in started["seats"]]
@@ -181,7 +181,8 @@ def _play_match_over_http(base, room_code, players, target_statuses=("MATCH_END"
                 assert code == 200
                 progressed = True
         if not progressed:
-            m0 = states[0]["match"]
+            first_seat = next(iter(players))
+            m0 = states[first_seat]["match"]
             if m0["phase"] == "ROUND_END":
                 rnd = m0["round"]
                 for seat in players:
@@ -195,7 +196,7 @@ def _play_match_over_http(base, room_code, players, target_statuses=("MATCH_END"
                 assert req_json(
                     f"{base}/api/rooms/{room_code}/next-round",
                     method="POST",
-                    token=players[0],
+                    token=players[first_seat],
                     body={"kyoku": rnd["kyoku"], "honba": rnd["honba"]},
                 )[0] == 409
                 progressed = True
@@ -348,6 +349,35 @@ def test_replay_same_wall_hints_and_series_comparison(live_server):
     assert r1 is not None and r2 is not None
     assert sum(r1["scores"]) == 100000 and sum(r2["scores"]) == 100000
     assert sorted(r1["ranks"]) == [1, 2, 3, 4] and sorted(r2["ranks"]) == [1, 2, 3, 4]
+
+
+def test_solo_match_one_and_replay_hints(live_server):
+    base, _ = live_server
+    _, host = req_json(f"{base}/api/rooms", method="POST", body={"name": "솔로"})
+    room_code = host["roomCode"]
+    # 좌석 2(서가)로 이동한 뒤 별도 준비 클릭 없이 바로 시작
+    st, moved = req_json(f"{base}/api/rooms/{room_code}/seat", method="POST", token=host["token"], body={"seat": 2})
+    assert st == 200 and moved["canStart"] is True
+    st, started = req_json(f"{base}/api/rooms/{room_code}/start", method="POST", token=host["token"], body={})
+    assert st == 200 and started["mySeat"] == 2
+    assert [s["kind"] for s in started["seats"]] == ["ai", "ai", "human", "ai"]
+
+    players = {2: host["token"]}
+    _play_match_over_http(base, room_code, players, target_statuses=("MATCH_END",))
+    st, replay = req_json(f"{base}/api/rooms/{room_code}/replay", method="POST", token=host["token"], body={})
+    assert st == 200 and replay["matchNumber"] == 2
+    # 타패 차례까지 진행된 상태면 추천도 정상 동작해야 한다.
+    if replay["match"]["hintAllowed"]:
+        st, hint = req_json(
+            f"{base}/api/rooms/{room_code}/hint",
+            method="POST",
+            token=host["token"],
+            body={"revision": replay["match"]["decision"]["revision"]},
+        )
+        assert st == 200 and hint["candidates"][0]["loss"] == 0.0
+    series_end = _play_match_over_http(base, room_code, players, target_statuses=("SERIES_END",))
+    assert sum(series_end[2]["firstMatchResult"]["scores"]) == 100000
+    assert sum(series_end[2]["secondMatchResult"]["scores"]) == 100000
 
 
 def test_replay_starts_with_ai_takeover_for_disconnected_player(live_server):
