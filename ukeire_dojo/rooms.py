@@ -25,7 +25,7 @@ _LIBTORCH_CU128 = Path.home() / ".djl.ai" / "pytorch" / "2.11.0-cu128-win-x86_64
 
 _ROOM_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 _MAX_PLAYERS = 4
-_MIN_HUMANS = 2
+_MIN_HUMANS = 1
 _MAX_NAME_LEN = 20
 _DEFAULT_PING_SECONDS = 10.0
 
@@ -455,6 +455,8 @@ class RoomManager:
                     s.name = f"AI {s.seat + 1}"
                     s.ready = True
                     s.connected = True
+                elif s.kind == "human":
+                    s.ready = True
             room.status = "PLAYING"
             room.match_number = 1
             room.pending_revision = None
@@ -651,10 +653,10 @@ class RoomManager:
     def _can_start(self, room: Room) -> tuple[bool, str | None]:
         humans = [s for s in room.seats if s.kind == "human"]
         if len(humans) < _MIN_HUMANS:
-            return False, "최소 2명의 사람이 입장해야 시작할 수 있습니다."
+            return False, "최소 1명의 사람이 입장해야 시작할 수 있습니다."
         if any(not s.connected for s in humans):
             return False, "연결이 끊긴 참가자가 있어 시작할 수 없습니다."
-        if any(not s.ready for s in humans):
+        if len(humans) >= 2 and any(not s.ready for s in humans):
             return False, "참가자 전원이 준비해야 시작할 수 있습니다."
         return True, None
 

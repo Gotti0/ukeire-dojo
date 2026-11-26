@@ -376,7 +376,7 @@ export default function Multiplayer() {
       <section className="mp-panel">
         <h2>동풍전 멀티플레이</h2>
         <p className="muted">
-          2~4명의 사람이 같은 방에 모여 동풍전을 진행합니다. 빈 좌석은 Epsilon-Prism AI가 맡습니다.
+          1~4명의 사람이 같은 방에 모여 동풍전을 진행합니다. 빈 좌석은 Epsilon-Prism AI가 맡습니다.
         </p>
         {error && <div className="error">{error}</div>}
         {session && !room && !error && <p className="muted">방 상태를 불러오는 중…</p>}
