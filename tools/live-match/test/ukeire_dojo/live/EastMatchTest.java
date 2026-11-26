@@ -7,6 +7,7 @@ import com.epsilon.mahjong.rules.RoundStart;
 import com.epsilon.mahjong.rules.Settlement;
 import com.epsilon.mahjong.rules.TableState;
 import com.epsilon.mahjong.rules.Variant;
+import com.google.gson.JsonParser;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -22,7 +23,8 @@ public final class EastMatchTest {
     rejectsStaleAndInvalidChoices();
     preservesRoundsAcrossDifferentPaths();
     settlesEastFourAndBust();
-    System.out.println("EastMatchTest: 3 checks passed");
+    hostsSeatIsolatedScriptedMatch();
+    System.out.println("EastMatchTest: 4 checks passed");
   }
 
   private static void rejectsStaleAndInvalidChoices() {
@@ -164,6 +166,64 @@ public final class EastMatchTest {
     equal(null, busted.nextRound(), "a negative score did not end the game");
     equal(0, busted.deposits(), "a finished game retained deposits");
     equal(100000, busted.scores().stream().mapToInt(Integer::intValue).sum(), "bust settlement paid deposits twice");
+  }
+
+  @SuppressWarnings("unchecked")
+  private static void hostsSeatIsolatedScriptedMatch() {
+    var host = LiveMatchHost.scripted();
+    var created = (Map<String, Object>) host.handle(JsonParser.parseString(
+        "{\"cmd\":\"create_series\",\"roomId\":\"ROOM01\"}").getAsJsonObject());
+    equal("DECISIONS", created.get("phase"), "series did not start in DECISIONS");
+    equal(List.of(0), created.get("pendingSeats"), "dealer must act first");
+
+    var seat0 = (Map<String, Object>) host.handle(JsonParser.parseString(
+        "{\"cmd\":\"seat_state\",\"roomId\":\"ROOM01\",\"seat\":0}").getAsJsonObject());
+    var seat1 = (Map<String, Object>) host.handle(JsonParser.parseString(
+        "{\"cmd\":\"seat_state\",\"roomId\":\"ROOM01\",\"seat\":1}").getAsJsonObject());
+    var table0 = (Map<String, Object>) seat0.get("table");
+    var table1 = (Map<String, Object>) seat1.get("table");
+    check(table0.get("draw") != null, "dealer must see its own opening draw");
+    check(table1.get("draw") == null, "non-dealer must not see a draw");
+    var last1 = (Map<String, Object>) table1.get("lastEvent");
+    equal("DRAW", last1.get("kind"), "lastEvent kind differed");
+    equal(null, last1.get("tile"), "other seat saw dealer draw tile");
+    var players1 = (List<Map<String, Object>>) table1.get("players");
+    for (var p : players1) {
+      check(!p.containsKey("hand") && !p.containsKey("draw"), "other player object leaked private fields");
+    }
+    equal(14, players1.get(0).get("concealed"), "dealer concealed count wrong before discard");
+    check(seat1.get("decision") == null, "waiting seat should not receive decision");
+
+    int steps = 0;
+    Map<String, Object> pending = created;
+    while (!"MATCH_END".equals(pending.get("phase"))) {
+      if ("ROUND_END".equals(pending.get("phase"))) {
+        var rnd = (Map<String, Object>) pending.get("round");
+        pending = (Map<String, Object>) host.handle(JsonParser.parseString(
+            String.format("{\"cmd\":\"next_round\",\"roomId\":\"ROOM01\",\"kyoku\":%s,\"honba\":%s}",
+                rnd.get("kyoku"), rnd.get("honba"))).getAsJsonObject());
+        continue;
+      }
+      var seats = (List<Integer>) pending.get("pendingSeats");
+      var actions = new StringBuilder("{");
+      for (int i = 0; i < seats.size(); i++) {
+        int s = seats.get(i);
+        var choice = (Map<String, Object>) host.handle(JsonParser.parseString(
+            String.format("{\"cmd\":\"ai_choice\",\"roomId\":\"ROOM01\",\"seat\":%d}", s)).getAsJsonObject());
+        if (i > 0) actions.append(',');
+        actions.append('"').append(s).append("\":").append(choice.get("action"));
+      }
+      actions.append('}');
+      pending = (Map<String, Object>) host.handle(JsonParser.parseString(
+          String.format("{\"cmd\":\"commit\",\"roomId\":\"ROOM01\",\"revision\":%s,\"actions\":%s}",
+              pending.get("revision"), actions)).getAsJsonObject());
+      steps++;
+      check(steps < 5000, "scripted match did not terminate");
+    }
+    var settlement = (Map<String, Object>) pending.get("settlement");
+    var scores = (List<Integer>) settlement.get("scores");
+    equal(100000, scores.stream().mapToInt(Integer::intValue).sum(), "final total points differed");
+    host.handle(JsonParser.parseString("{\"cmd\":\"delete_series\",\"roomId\":\"ROOM01\"}").getAsJsonObject());
   }
 
   private static EastMatch.Settlement settle(RoundStart start, RoundOutcome result) {

@@ -24,6 +24,7 @@ import os
 import random
 import re
 import secrets
+import select
 import socket
 import sqlite3
 import sys
@@ -38,6 +39,7 @@ from urllib.parse import parse_qs, urlparse
 
 from ukeire_dojo.explanation import LABELS, cli_executable, explanation_prompt, stream_explanation
 from ukeire_dojo.practice import MISTAKE_LOSS, Practice, practice_weights, problem_kind
+from ukeire_dojo.rooms import LiveMatchClient, RoomError, RoomManager
 
 ROOT = Path(__file__).resolve().parents[1]
 WINDS = "ESWN"
@@ -45,6 +47,9 @@ MAX_BODY = 4096  # /api/answer의 본문은 수십 바이트다. 큰 본문으�
 PASSWORD_ENV = "UKEIRE_DOJO_PASSWORD"
 PROFILE_COOKIE = "ukeire_profile"
 PRACTICE_TOKEN = re.compile(r"[0-9a-f]{32}")
+ROOM_EVENTS_PATH = re.compile(r"^/api/rooms/([A-Za-z0-9]+)/events$")
+ROOM_STATE_PATH = re.compile(r"^/api/rooms/([A-Za-z0-9]+)$")
+ROOM_ACTION_PATH = re.compile(r"^/api/rooms/([A-Za-z0-9]+)/(join|seat|ready|start|action|next-round|leave)$")
 
 
 class RateLimiter:
@@ -209,6 +214,7 @@ class Handler(BaseHTTPRequestHandler):
     static_root: Path
     picker: ProblemPicker
     practice: Practice | None = None
+    rooms: RoomManager | None = None
     explanation_slots = threading.BoundedSemaphore(2)
     password: str | None = None
     limiter: RateLimiter = RateLimiter()
@@ -283,9 +289,132 @@ class Handler(BaseHTTPRequestHandler):
             return None
         return cookie.value if cookie and PRACTICE_TOKEN.fullmatch(cookie.value) else None
 
+    def _player_token(self) -> str | None:
+        token = (self.headers.get("X-Player-Token") or "").strip()
+        return token if PRACTICE_TOKEN.fullmatch(token) else None
+
+    def _peer_closed(self) -> bool:
+        try:
+            sock = self.connection
+            if sock.fileno() == -1:
+                return True
+            readable, _, _ = select.select([sock], [], [], 0)
+            if not readable:
+                return False
+            data = sock.recv(1, socket.MSG_PEEK)
+            return data == b""
+        except BlockingIOError:
+            return False
+        except OSError:
+            return True
+
+    def _read_json_body(self, *, allow_empty: bool = False) -> dict | None:
+        raw_len = self.headers.get("Content-Length")
+        length = int(raw_len) if raw_len is not None else 0
+        if length == 0 and allow_empty:
+            return {}
+        if not 0 < length <= MAX_BODY:
+            self._send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": f"body must be 1..{MAX_BODY} bytes"})
+            return None
+        body = json.loads(self.rfile.read(length))
+        if not isinstance(body, dict):
+            raise ValueError("JSON object expected")
+        return body
+
+    def _send_room_events(self, code: str) -> None:
+        if self.rooms is None:
+            self._send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "멀티플레이 방 기능이 비활성화되어 있습니다."})
+            return
+        token = self._player_token()
+        try:
+            events = self.rooms.subscribe(code, token, self._peer_closed)
+            first_event = next(events)
+        except RoomError as e:
+            self._send_json(e.status, {"error": e.message})
+            return
+        except StopIteration:
+            return
+        try:
+            self.connection.settimeout(None)
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Connection", "close")
+            self.close_connection = True
+            self._common_headers()
+            self.end_headers()
+
+            def write(event: dict) -> None:
+                self.wfile.write((json.dumps(event, ensure_ascii=False) + "\n").encode("utf-8"))
+                self.wfile.flush()
+
+            write(first_event)
+            for event in events:
+                write(event)
+        except ConnectionError:
+            pass
+        finally:
+            events.close()
+
+    def _handle_room_post(self, path: str) -> None:
+        if self.rooms is None:
+            self._send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "멀티플레이 방 기능이 비활성화되어 있습니다."})
+            return
+        try:
+            body = self._read_json_body(allow_empty=True)
+            if body is None:
+                return
+            token = self._player_token()
+            if path == "/api/rooms":
+                self._send_json(HTTPStatus.CREATED, self.rooms.create_room(body.get("name")))
+                return
+            match = ROOM_ACTION_PATH.match(path)
+            if not match:
+                self._send_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
+                return
+            code, action = match.groups()
+            if action == "join":
+                self._send_json(HTTPStatus.OK, self.rooms.join_room(code, body.get("name"), existing_token=token))
+            elif action == "seat":
+                self._send_json(HTTPStatus.OK, self.rooms.choose_seat(code, token, int(body["seat"])))
+            elif action == "ready":
+                self._send_json(HTTPStatus.OK, self.rooms.set_ready(code, token, bool(body["ready"])))
+            elif action == "start":
+                self._send_json(HTTPStatus.OK, self.rooms.start_match(code, token))
+            elif action == "action":
+                self._send_json(
+                    HTTPStatus.OK,
+                    self.rooms.submit_action(code, token, int(body["revision"]), int(body["action"])),
+                )
+            elif action == "next-round":
+                self._send_json(
+                    HTTPStatus.OK,
+                    self.rooms.confirm_next_round(code, token, int(body["kyoku"]), int(body["honba"])),
+                )
+            elif action == "leave":
+                self._send_json(HTTPStatus.OK, self.rooms.leave_room(code, token))
+        except RoomError as e:
+            self._send_json(e.status, {"error": e.message})
+        except (ValueError, KeyError, TypeError, json.JSONDecodeError) as e:
+            self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(e)})
+
     def do_GET(self) -> None:  # noqa: N802
         url = urlparse(self.path)
         if not self._guard(api=url.path.startswith("/api/")):
+            return
+        if m := ROOM_EVENTS_PATH.match(url.path):
+            self._send_room_events(m.group(1))
+            return
+        if m := ROOM_STATE_PATH.match(url.path):
+            if self.rooms is None:
+                self._send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "멀티플레이 방 기능이 비활성화되어 있습니다."})
+                return
+            try:
+                state = self.rooms.get_state(m.group(1), self._player_token())
+            except RoomError as e:
+                self._send_json(e.status, {"error": e.message})
+                return
+            self._send_json(HTTPStatus.OK, state)
             return
         if url.path == "/api/problem":
             query = {k: v[-1] for k, v in parse_qs(url.query).items()}
@@ -330,6 +459,9 @@ class Handler(BaseHTTPRequestHandler):
         if not self._guard(api=True):
             return
         path = urlparse(self.path).path
+        if path == "/api/rooms" or ROOM_ACTION_PATH.match(path):
+            self._handle_room_post(path)
+            return
         if path not in ("/api/answer", "/api/explanation"):
             self._send_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
             return
@@ -506,6 +638,9 @@ def main() -> None:
     parser.add_argument("--static", type=Path, default=ROOT / "web" / "dist")
     parser.add_argument("--password-file", type=Path, help=f"암호 파일. 없으면 환경 변수 {PASSWORD_ENV}를 읽는다")
     parser.add_argument("--log-file", type=Path, help="접속 기록을 덧붙일 파일(stderr에도 쓴다)")
+    parser.add_argument("--live-bot", choices=("prism", "scripted"), default="prism")
+    parser.add_argument("--live-device", default="gpu0")
+    parser.add_argument("--disconnect-grace", type=float, default=15.0)
     args = parser.parse_args()
     if not args.db.is_file():
         raise SystemExit(f"problem bank not found: {args.db}")
@@ -526,12 +661,20 @@ def main() -> None:
         raise SystemExit("practice database must be separate from the problem bank")
     Handler.practice = Practice(practice_path)
     Handler.picker = ProblemPicker(sqlite3.connect(f"file:{Handler.db_path}?mode=ro", uri=True))
+    Handler.rooms = RoomManager(
+        LiveMatchClient(bot_mode=args.live_bot, device=args.live_device),
+        disconnect_grace_seconds=args.disconnect_grace,
+    )
     try:
         server = Server((args.host, args.port), Handler)
     except OSError as e:
+        Handler.rooms.close()
         raise SystemExit(f"cannot listen on {args.host}:{args.port} ({e}). Is another server already running?") from e
     write_log(args.log_file, f"serving http://{args.host}:{args.port}  db={args.db}  auth={'on' if password else 'off'}")
-    server.serve_forever()
+    try:
+        server.serve_forever()
+    finally:
+        Handler.rooms.close()
 
 
 if __name__ == "__main__":

@@ -109,6 +109,17 @@ public final class EastMatch {
   // 엔진 뷰는 다음 상태 전이까지만 유효하다. 방에서 좌석 응답을 만들 때 즉시 읽는다.
   SeatView seatView(int seat) { return engine.view(seat); }
 
+  long revision() { return revision; }
+
+  int dealer() { return engine.handStart().dealer(); }
+
+  Decisions decisions() {
+    if (phase != Phase.DECISIONS) {
+      throw new IllegalStateException("the match is not waiting for decisions");
+    }
+    return engine.decisions();
+  }
+
   private void deal(RoundStart next) {
     start = next;
     settlement = null;
