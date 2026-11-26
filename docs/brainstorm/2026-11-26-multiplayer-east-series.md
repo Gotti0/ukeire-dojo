@@ -51,7 +51,7 @@
 
 - T8 기본 규칙은 25,000점 시작, 동4국에서 친이 넘어가면 종료, 0점 미만에서 토비로 종료한다. 동4국 친 연장은 허용한다. 남입과 오라스 조기 종료는 후속 규칙 후보로 남긴다. [T8 진행 규칙](../../tools/live-match/README.md)
 - (해결, T9~T10) 접속이 끊기면 15초 유예 후 AI가 임시 대타를 맡아 진행하고, 원래 참가자가 같은 토큰(`sessionStorage`)으로 재접속하면 다음 선택부터 즉시 복귀한다. 두 번째 경기 시작 시점까지 미복귀한 참가자는 원래 좌석·토큰을 유지한 채 AI 대타 상태로 시작하며, 이후 재접속 시 즉시 복귀한다.
-- T7은 CUDA에서 실시간 국 진행과 합법 타패 후보별 평가를 검증했다. 방 동시 실행과 브라우저 왕복을 측정한 뒤 제품 응답 시간 목표를 확정한다. CPU 추론은 현재 검증한 빌드에서 첫 판단이 실패했다. [T7 엔진 실험](../../tools/live-spike/README.md)
+- (해결, T11) 브라우저 왕복과 2방 동시 실행을 CUDA(`gpu0`)에서 실측해 제품 응답 시간 목표를 확정했다. 단일 방 타패/행동 왕복 p95 161.6ms(목표 250ms 이내)·타패 추천 p95 63.5ms(목표 150ms 이내), 2방 동시 타패/행동 왕복 p95 297.6ms(목표 500ms 이내)·타패 추천 p95 104.1ms(목표 200ms 이내). CPU 추론은 현재 검증한 빌드에서 첫 판단이 실패했다. [T7 엔진 실험](../../tools/live-spike/README.md) · [T11 E2E 검증 기록](../../tools/live-e2e/README.md)
 
 ## 작업 목록
 
@@ -59,4 +59,4 @@
 - [x] T8. 국·본장별 패산과 경기 진행을 연결한다 — 산출물: 동일 배패·패산 재현, 연장 경로 분기, 점수 정산 검증 — [검증 기록](../../tools/live-match/README.md)
 - [x] T9. 초대 방, 준비, 좌석, 재접속을 연결한다 — 산출물: `LiveMatchHost`, `ukeire_dojo/rooms.py`, `ukeire_dojo/server.py` 방 API·NDJSON 스트림, `web/src/Multiplayer.jsx`, `tests/test_rooms.py` (사람 2~4명+AI 대국, 좌석별 정보 분리, 15초 유예 AI 대타·재접속, GPU Prism·2브라우저 E2E 검증) — 선행: T8
 - [x] T10. 같은 방의 두 경기와 요청형 타패 추천을 연결한다 — 산출물: `LiveMatchHost` `start_replay`·`discard_hint`, `RoomManager.start_replay`·`get_discard_hint`·`SERIES_END`, `POST /api/rooms/<CODE>/replay|hint`, 요청형 추천 패널·지연 응답 차단·두 경기 결과 비교 UI, `tests/test_rooms.py`·`EastMatchTest`·2브라우저 E2E 검증 — 선행: T9
-- [ ] T11. 두 브라우저에서 동풍전 두 경기를 완주한다 — 산출물: 실제 플레이 검증 기록, 재접속과 중복·지연 입력 검증 결과 — 선행: T10
+- [x] T11. 두 브라우저에서 동풍전 두 경기를 완주한다 — 산출물: `tools/live-e2e/verify.mjs`·`run.ps1`, 실제 플레이 시나리오 A~D·재접속·중복/지연 입력·2방 동시 왕복 응답 시간 실측 기록 — [검증 기록](../../tools/live-e2e/README.md) — 선행: T10
