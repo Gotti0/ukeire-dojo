@@ -15,3 +15,10 @@ __pycache__/
 
 # WORKLOG 생성물(원본은 docs/worklog/entries/)
 /docs/WORKLOG.md
+
+# 화면 의존성과 빌드 결과
+/web/node_modules/
+/web/dist/
+
+# Claude Code 로컬 실행 설정
+/.claude/
