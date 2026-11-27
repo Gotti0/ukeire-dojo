@@ -25,6 +25,7 @@
 - 해설(T6): 채점 후 국면 정보와 전체 후보 타패 표를 담은 단일 완성형(모놀리식) 프롬프트를 원클릭 복사해 ChatGPT·Claude·Gemini 등 외부 AI에 붙여넣어 해설을 받을 수 있다.
 - 동풍전 멀티플레이(T7~T11): 초대 코드 방 생성·입장·준비, 1~4인(솔로 1인+3AI 포함) 시작, SSE 실시간 동기화와 좌석 격리, 이탈 유예 후 AI 대타 전환·재접속 복귀, 싱글플레이와 멀티플레이 재대국을 지원한다. 타패 추천(`/hint`)은 싱글플레이와 멀티플레이 2경기에서 요청할 수 있다. Playwright 다중 브라우저 E2E 검증 완료([검증 보고서](tools/live-e2e/README.md)).
 - 공개 운영 및 통계: `https://ukeire-dojo.me`에서 상시 운영 중이며(OCI ARM64 CPU + Caddy HTTPS, `--live-bot prism --live-device cpu`), 자가 호스팅 방문자·풀이 통계(`/api/stats`, `/api/stats/chart.svg`, `/api/badge/visitors.svg`, `/api/badge/solved.svg`)를 제공한다.
+- 테스트 자동화 및 OCI 배포 흐름은 [운영 배포 문서](docs/production-deployment.md)에 정리했다.
 - 설계와 결정 기록은 [AI 패효율 트레이너](docs/brainstorm/2026-11-26-ai-efficiency-trainer.md), [동풍전 멀티플레이](docs/brainstorm/2026-11-26-multiplayer-east-series.md)에 있다.
 
 ## 로컬 실행
