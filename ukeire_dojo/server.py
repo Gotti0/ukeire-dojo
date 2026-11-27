@@ -35,6 +35,7 @@ from http.cookies import CookieError, SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+from xml.sax.saxutils import escape
 
 from ukeire_dojo.practice import MISTAKE_LOSS, Practice, practice_weights, problem_kind
 from ukeire_dojo.rooms import LiveMatchClient, RoomError, RoomManager
@@ -205,6 +206,38 @@ def grade(row: sqlite3.Row, tile: str) -> dict:
         "table": table,
         "source": {"record": row["source"], "round_index": row["round_index"], "honba": row["honba"], "step": row["step"]},
     }
+
+
+def render_badge_svg(label: str, value: str, color: str) -> bytes:
+    """shields.io 스타일의 20px 높이 SVG 배지를 생성한다."""
+    label_w = max(46, len(label) * 7 + 14)
+    value_w = max(36, len(value) * 7 + 14)
+    total_w = label_w + value_w
+    esc_label = escape(label)
+    esc_value = escape(value)
+    esc_color = escape(color)
+    title = escape(f"{label}: {value}")
+    svg = (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{total_w}" height="20" role="img" aria-label="{title}">'
+        f"<title>{title}</title>"
+        f'<linearGradient id="s" x2="0" y2="100%">'
+        f'<stop offset="0" stop-color="#bbb" stop-opacity=".1"/>'
+        f'<stop offset="1" stop-opacity=".1"/>'
+        f"</linearGradient>"
+        f'<clipPath id="r"><rect width="{total_w}" height="20" rx="3" fill="#fff"/></clipPath>'
+        f'<g clip-path="url(#r)">'
+        f'<rect width="{label_w}" height="20" fill="#555"/>'
+        f'<rect x="{label_w}" width="{value_w}" height="20" fill="{esc_color}"/>'
+        f'<rect width="{total_w}" height="20" fill="url(#s)"/>'
+        f"</g>"
+        f'<g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" '
+        f'text-rendering="geometricPrecision" font-size="11">'
+        f'<text x="{label_w / 2:.1f}" y="14">{esc_label}</text>'
+        f'<text x="{label_w + value_w / 2:.1f}" y="14">{esc_value}</text>'
+        f"</g>"
+        f"</svg>"
+    )
+    return svg.encode("utf-8")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -418,6 +451,28 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._send_json(HTTPStatus.OK, state)
             return
+        if url.path == "/api/stats":
+            stats = self._global_stats()
+            if stats is not None:
+                self._send_json(HTTPStatus.OK, stats)
+            return
+        if url.path in ("/api/badge/visitors.svg", "/api/badge/solved.svg"):
+            stats = self._global_stats()
+            if stats is None:
+                return
+            if url.path.endswith("visitors.svg"):
+                svg = render_badge_svg("visitors", f"{stats['visitors']:,}", "#2f5d50")
+            else:
+                svg = render_badge_svg("solved", f"{stats['answered']:,}", "#2b62c4")
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "image/svg+xml; charset=utf-8")
+            self.send_header("Content-Length", str(len(svg)))
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0")
+            self.send_header("Pragma", "no-cache")
+            self._common_headers()
+            self.end_headers()
+            self.wfile.write(svg)
+            return
         if url.path == "/api/problem":
             query = {k: v[-1] for k, v in parse_qs(url.query).items()}
             try:
@@ -427,6 +482,8 @@ class Handler(BaseHTTPRequestHandler):
                 adaptive = _tri(query.get("adaptive", "0"))
                 profile = self._profile()
                 summary = self.practice.summary(profile) if self.practice else None
+                if self.practice is not None and profile is not None:
+                    self.practice.touch_visitor(profile)
                 problem_id = self.picker.pick(
                     min_loss=min_loss,
                     disagree=_tri(query.get("disagree")),
@@ -500,6 +557,16 @@ class Handler(BaseHTTPRequestHandler):
         except sqlite3.Error as e:
             self.log_error("answer storage unavailable: %s", e)
             self._send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "풀이 기록을 저장할 수 없습니다."})
+
+    def _global_stats(self) -> dict[str, int] | None:
+        if self.practice is None:
+            return {"visitors": 0, "answered": 0}
+        try:
+            return self.practice.global_stats()
+        except sqlite3.Error as e:
+            self.log_error("stats storage unavailable: %s", e)
+            self._send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "통계를 읽을 수 없습니다."})
+            return None
 
     def _send_static(self, path: str) -> None:
         relative = path.lstrip("/") or "index.html"

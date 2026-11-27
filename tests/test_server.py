@@ -338,3 +338,46 @@ def test_explanation_endpoint_removed(server):
         method="POST",
     )
     assert code == 404
+
+
+def test_stats_and_svg_badges(server):
+    import xml.etree.ElementTree as ET
+
+    _, raw_stats = get(f"{server}/api/stats")
+    assert json.loads(raw_stats) == {"visitors": 0, "answered": 0}
+
+    # 쿠키 없는 요청(봇/curl 등)은 방문자 수를 올리지 않는다.
+    for _ in range(2):
+        get(f"{server}/api/problem")
+    assert json.loads(get(f"{server}/api/stats")[1]) == {"visitors": 0, "answered": 0}
+
+    # 브라우저 1: 첫 문제 응답으로 쿠키를 받은 뒤 두 번째 조회부터 방문자로 집계, 중복 증가 없음.
+    b1 = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(CookieJar()))
+    p1 = json.loads(b1.open(f"{server}/api/problem").read())
+    assert json.loads(get(f"{server}/api/stats")[1]) == {"visitors": 0, "answered": 0}
+    b1.open(f"{server}/api/problem").read()
+    b1.open(f"{server}/api/problem").read()
+    assert json.loads(get(f"{server}/api/stats")[1]) == {"visitors": 1, "answered": 0}
+
+    b1.open(f"{server}/api/answer", json.dumps({"id": p1["id"], "tile": "E", "attempt_id": p1["attempt_id"]}).encode()).read()
+    assert json.loads(get(f"{server}/api/stats")[1]) == {"visitors": 1, "answered": 1}
+
+    # 브라우저 2: 두 번째 고유 방문자
+    b2 = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(CookieJar()))
+    b2.open(f"{server}/api/problem").read()
+    b2.open(f"{server}/api/problem").read()
+    assert json.loads(get(f"{server}/api/stats")[1]) == {"visitors": 2, "answered": 1}
+
+    for path, label, value in (
+        ("/api/badge/visitors.svg", "visitors", "2"),
+        ("/api/badge/solved.svg", "solved", "1"),
+    ):
+        req = urllib.request.Request(f"{server}{path}")
+        with urllib.request.urlopen(req) as resp:
+            assert resp.status == 200
+            assert resp.headers["Content-Type"].startswith("image/svg+xml")
+            assert "no-cache" in resp.headers["Cache-Control"]
+            body = resp.read().decode("utf-8")
+        root = ET.fromstring(body)
+        texts = [el.text for el in root.iter() if el.tag.endswith("text")]
+        assert texts == [label, value]
