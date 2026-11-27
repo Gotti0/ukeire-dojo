@@ -37,6 +37,21 @@ class RoomError(Exception):
         self.message = message
 
 
+def _jdk_tool(name: str) -> Path | None:
+    """번들 JDK(vendor/jdk), JAVA_HOME, PATH 순으로 java/javac 실행 파일을 찾는다."""
+    exe = f"{name}.exe" if os.name == "nt" else name
+    bundled = VENDOR / "jdk" / "bin" / exe
+    if bundled.is_file():
+        return bundled
+    java_home = os.environ.get("JAVA_HOME")
+    if java_home:
+        candidate = Path(java_home) / "bin" / exe
+        if candidate.is_file():
+            return candidate
+    found = shutil.which(name)
+    return Path(found) if found else None
+
+
 def ensure_live_match_compiled() -> Path:
     """tools/live-match Java 소스가 클래스보다 새로우면 컴파일한다."""
     sources = sorted((LIVE_MATCH_DIR / "src").rglob("*.java"))
@@ -46,8 +61,8 @@ def ensure_live_match_compiled() -> Path:
     newest_src = max(p.stat().st_mtime for p in sources)
     if target_class.is_file() and target_class.stat().st_mtime >= newest_src:
         return LIVE_MATCH_CLASSES
-    javac = VENDOR / "jdk" / "bin" / "javac.exe"
-    if not javac.is_file() or not _REVIEWER_JAR.is_file():
+    javac = _jdk_tool("javac")
+    if javac is None or not _REVIEWER_JAR.is_file():
         raise RoomError(HTTPStatus.SERVICE_UNAVAILABLE, "실시간 대국 JDK 또는 리뷰어 jar가 준비되지 않았습니다.")
     LIVE_MATCH_CLASSES.mkdir(parents=True, exist_ok=True)
     proc = subprocess.run(
@@ -103,8 +118,8 @@ class LiveMatchClient:
         if self._proc is not None and self._proc.poll() is None:
             return
         classes = ensure_live_match_compiled()
-        java = VENDOR / "jdk" / "bin" / "java.exe"
-        if not java.is_file():
+        java = _jdk_tool("java")
+        if java is None:
             raise RoomError(HTTPStatus.SERVICE_UNAVAILABLE, "JDK를 찾을 수 없습니다.")
         if self.bot_mode == "prism" and not self.checkpoint.exists():
             raise RoomError(HTTPStatus.SERVICE_UNAVAILABLE, "Prism 체크포인트를 찾을 수 없습니다.")
