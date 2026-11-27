@@ -519,8 +519,10 @@ export default function Multiplayer() {
     <section className="mp-panel">
       <div className="mp-match-bar">
         <strong>
-          방 {room.roomCode} · {match.matchNumber}경기
-          {match.matchNumber === 1 ? " (AI 도움 없음)" : " (동일 패산 · 타패 추천 가능)"} ·{" "}
+          방 {room.roomCode} · {room.solo ? "싱글플레이" : match.matchNumber + "경기"}
+          {room.solo
+            ? " (타패 추천 가능)"
+            : match.matchNumber === 1 ? " (AI 도움 없음)" : " (동일 패산 · 타패 추천 가능)"} ·{" "}
           동{match.round.kyoku}국 {match.round.honba}본장
         </strong>
         <span className="muted">
@@ -709,7 +711,7 @@ export default function Multiplayer() {
 
       {room.status === "MATCH_END" && settlement && (
         <div className="result">
-          <div className="verdict good">1경기 동풍전 종료</div>
+          <div className="verdict good">{room.solo ? "싱글플레이 동풍전 종료" : "1경기 동풍전 종료"}</div>
           <table>
             <thead>
               <tr><th>순위</th><th>좌석</th><th>참가자</th><th>최종 점수</th><th>득실</th></tr>
@@ -732,15 +734,18 @@ export default function Multiplayer() {
                 })}
             </tbody>
           </table>
-          <p className="muted small-text">
-            같은 좌석·25,000점·동일 국·본장 패산으로 2경기를 시작하며, 2경기에서는 자기 차례에 AI 타패 추천을 볼 수 있습니다.
-          </p>
+          {!room.solo && (
+            <p className="muted small-text">
+              같은 좌석·25,000점·동일 국·본장 패산으로 2경기를 시작하며, 2경기에서는 자기 차례에 AI 타패 추천을 볼 수 있습니다.
+            </p>
+          )}
           <div className="mp-lobby-actions">
-            {room.canStartReplay ? (
+            {room.canStartReplay && (
               <button type="button" className="btn-start" disabled={busy} onClick={() => withRoomPost("replay")}>
                 같은 패산으로 2경기 시작
               </button>
-            ) : (
+            )}
+            {!room.solo && !room.canStartReplay && (
               <span className="muted">방장이 같은 패산으로 2경기를 시작할 때까지 기다리는 중…</span>
             )}
             <button type="button" onClick={() => resetSession()}>

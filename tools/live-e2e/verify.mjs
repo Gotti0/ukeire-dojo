@@ -154,17 +154,42 @@ async function stepPage(page, { actionTimes = null, hintTimes = null, requestHin
   return false;
 }
 
-async function driveTwoPlayersToHeading(pageA, pageB, headingText, opts = {}) {
+async function driveToHeading(pages, headingText, opts = {}) {
   const deadline = Date.now() + 120_000;
   while (Date.now() < deadline) {
-    const doneA = await pageA.getByText(headingText).isVisible().catch(() => false);
-    const doneB = await pageB.getByText(headingText).isVisible().catch(() => false);
-    if (doneA && doneB) return;
-    const actedA = !doneA && (await stepPage(pageA, opts));
-    const actedB = !doneB && (await stepPage(pageB, opts));
-    await new Promise((r) => setTimeout(r, actedA || actedB ? 45 : 40));
+    const waiting = [];
+    for (const page of pages) {
+      if (!(await page.getByText(headingText).isVisible())) waiting.push(page);
+    }
+    if (waiting.length === 0) return;
+    let acted = false;
+    for (const page of waiting) {
+      if (await stepPage(page, opts)) acted = true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, acted ? 45 : 40));
   }
   throw new Error(`Timed out waiting for "${headingText}"`);
+}
+
+async function runSoloScenario(browser, baseUrl) {
+  const page = await browser.newPage();
+  try {
+    await createRoomViaUi(page, baseUrl, "솔로");
+    await page.getByRole("button", { name: "동풍전 시작" }).click();
+    await page.getByText("싱글플레이 (타패 추천 가능)").waitFor();
+    await page.getByRole("button", { name: "AI 타패 추천 보기" }).click();
+    await page.locator(".hint-panel").waitFor();
+    await page.getByRole("button", { name: "AI 해설 프롬프트 복사" }).waitFor();
+
+    await driveToHeading([page], "싱글플레이 동풍전 종료");
+    assert.equal(await page.locator(".result tbody tr").count(), 4);
+    assert.equal(await page.getByRole("button", { name: "같은 패산으로 2경기 시작" }).count(), 0);
+    await page.getByRole("button", { name: "방 나가기" }).click();
+    await page.getByRole("button", { name: "새 방 만들기" }).waitFor();
+    return { hintOnFirstTurn: true, finishedAfterOneMatch: true };
+  } finally {
+    await page.close();
+  }
 }
 
 async function runScenarioA(browser, baseUrl) {
@@ -235,7 +260,7 @@ async function runScenarioA(browser, baseUrl) {
     assert.equal(await pageA.locator(".takeover-badge").count(), 0);
 
     // 1경기 완주
-    await driveTwoPlayersToHeading(pageA, pageB, "1경기 동풍전 종료", { actionTimes });
+    await driveToHeading([pageA, pageB], "1경기 동풍전 종료", { actionTimes });
     const m1End = await apiFetch(baseUrl, `/api/rooms/${roomCode}`, { token: sessA.token });
     assert.equal(m1End.data.firstMatchResult.scores.reduce((a, b) => a + b, 0), 100000);
 
@@ -284,7 +309,7 @@ async function runScenarioA(browser, baseUrl) {
     await pageA.unroute("**/api/rooms/*/hint");
 
     // 2경기 완주 (양 브라우저에서 최소 16회 이상 추천 왕복 측정)
-    await driveTwoPlayersToHeading(pageA, pageB, "1경기 vs 2경기 결과 비교", {
+    await driveToHeading([pageA, pageB], "1경기 vs 2경기 결과 비교", {
       actionTimes,
       hintTimes,
       requestHints: true,
@@ -397,7 +422,7 @@ async function runScenarioD(browser, baseUrl) {
     // 두 방 동시에 1경기 완주 → 2경기 전환 → 방당 최소 12회 이상 추천 + 타패 병렬 실행
     await Promise.all(
       rooms.map(async (r) => {
-        await driveTwoPlayersToHeading(r.pageA, r.pageB, "1경기 동풍전 종료", { actionTimes });
+        await driveToHeading([r.pageA, r.pageB], "1경기 동풍전 종료", { actionTimes });
         await r.pageA.getByRole("button", { name: "같은 패산으로 2경기 시작" }).click();
         await r.pageA.getByText("2경기 (동일 패산 · 타패 추천 가능)").waitFor({ timeout: 20_000 });
         await r.pageB.getByText("2경기 (동일 패산 · 타패 추천 가능)").waitFor({ timeout: 20_000 });
@@ -458,12 +483,13 @@ try {
   await waitForServer(`${baseUrl}/api/problem`);
   browser = await chromium.launch({ headless: true });
 
+  const solo = await runSoloScenario(browser, baseUrl);
   const a = await runScenarioA(browser, baseUrl);
   const b = await runScenarioB(browser, baseUrl);
   const c = await runScenarioC(browser, baseUrl);
   const d = await runScenarioD(browser, baseUrl);
 
-  console.log(JSON.stringify({ ok: true, device: DEVICE, scenarioA: a, scenarioB: b, scenarioC: c, scenarioD: d }, null, 2));
+  console.log(JSON.stringify({ ok: true, device: DEVICE, solo, scenarioA: a, scenarioB: b, scenarioC: c, scenarioD: d }, null, 2));
 } catch (err) {
   console.error("E2E_FAILED:", err);
   console.error("SERVER_STDERR_TAIL:", stderrBuf.slice(-3000));

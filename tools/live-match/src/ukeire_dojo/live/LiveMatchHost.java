@@ -297,9 +297,6 @@ public final class LiveMatchHost {
   }
 
   private Map<String, Object> discardHint(String roomId, int seat, int matchIndex) {
-    if (matchIndex != 2) {
-      throw new IllegalArgumentException("discard hints are only available in the second match");
-    }
     EastMatch match = matchOf(roomId, matchIndex);
     if (match.phase() != EastMatch.Phase.DECISIONS) {
       throw new IllegalStateException("the match is not waiting for decisions");
@@ -362,7 +359,7 @@ public final class LiveMatchHost {
             .thenComparingInt(m -> TileCode.order((String) m.get("tile"))));
 
     Map<String, Object> out = new LinkedHashMap<>();
-    out.put("matchNumber", 2);
+    out.put("matchNumber", matchIndex);
     out.put("revision", match.revision());
     out.put("bestTile", candidates.getFirst().get("tile"));
     out.put("candidates", candidates);
