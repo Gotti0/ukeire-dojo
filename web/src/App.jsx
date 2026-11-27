@@ -7,6 +7,7 @@ import { doraOf, sortTiles, tileName, tileType } from "./tiles.js";
 const WINDS = "동남서북";
 const ROUND_WIND = { E: "동", S: "남", W: "서", N: "북" };
 const RELATIVE = ["나", "하가", "대면", "상가"];
+const REPO_URL = "https://github.com/Gotti0/ukeire-dojo";
 
 const DEFAULT_FILTERS = { minLoss: "0.01", disagree: "1", oppRiichi: "any", menzen: "any", adaptive: "1" };
 const PRACTICE_LABELS = {
@@ -307,6 +308,9 @@ export default function App() {
             푼 문제 {score.solved} · AI 일치 {score.aiMatch} · 평균 손실 {score.solved ? (score.lossSum / score.solved).toFixed(3) : "—"}
           </span>
         )}
+        <a className="repo-link" href={REPO_URL} target="_blank" rel="noopener noreferrer">
+          GitHub
+        </a>
       </header>
       {mode === "multiplayer" ? (
         <Multiplayer />
@@ -331,7 +335,8 @@ export default function App() {
         </>
       )}
       <footer className="muted small-text">
-        패 이미지: Euophrys Riichi-Trainer (CC BY 4.0) · AI: Epsilon-Prism v760 (가중치 MIT). 개인 학습용이며 온라인 대국 보조에 쓰지 않습니다.
+        패 이미지: Euophrys Riichi-Trainer (CC BY 4.0) · AI: Epsilon-Prism v760 (가중치 MIT). 개인 학습용이며 온라인 대국 보조에 쓰지 않습니다. ·{" "}
+        <a href={REPO_URL} target="_blank" rel="noopener noreferrer">GitHub</a>
       </footer>
     </div>
   );
