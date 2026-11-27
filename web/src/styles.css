@@ -57,17 +57,6 @@ h1 {
   align-items: center;
 }
 
-.practice-stats {
-  margin-bottom: 12px;
-  padding: 8px 12px;
-  border-radius: 6px;
-  background: #fff;
-}
-
-.practice-stats summary {
-  cursor: pointer;
-}
-
 .error {
   background: #fbe3dc;
   color: var(--bad);
@@ -311,51 +300,6 @@ tr.chosen-row td:first-child {
   cursor: pointer;
 }
 
-.explanation {
-  border-top: 1px solid #e6e2d8;
-  padding-top: 10px;
-}
-
-.explanation-controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-.explanation-copy {
-  padding: 6px 12px;
-  border-radius: 6px;
-  border: 1px solid #cfc9bc;
-  background: #fff;
-  color: var(--ink);
-  font-size: 0.9rem;
-  cursor: pointer;
-}
-
-.explanation-preview {
-  margin-top: 8px;
-}
-
-.explanation-preview summary {
-  cursor: pointer;
-}
-
-.explanation-prompt {
-  width: 100%;
-  box-sizing: border-box;
-  margin-top: 6px;
-  font-family: ui-monospace, Consolas, monospace;
-  font-size: 0.82rem;
-  line-height: 1.45;
-  padding: 8px;
-  border: 1px solid #cfc9bc;
-  border-radius: 6px;
-  background: #faf8f4;
-  color: var(--ink);
-  resize: vertical;
-}
-
 .mode-tabs {
   display: inline-flex;
   flex-wrap: wrap;
@@ -386,48 +330,6 @@ tr.chosen-row td:first-child {
 .mp-panel h2 {
   margin: 0 0 6px;
   font-size: 1.2rem;
-}
-
-.mp-entry {
-  background: #fff;
-  border-radius: 10px;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.mp-entry label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 0.9rem;
-  max-width: 280px;
-}
-
-.mp-entry input {
-  padding: 7px 10px;
-  border: 1px solid #cfc9bc;
-  border-radius: 6px;
-  font-size: 0.95rem;
-}
-
-.mp-entry-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: center;
-}
-
-.code-input {
-  width: 140px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.mp-divider {
-  color: var(--muted);
-  font-size: 0.85rem;
 }
 
 .mp-lobby-head {
