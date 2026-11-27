@@ -30,14 +30,12 @@ import sqlite3
 import sys
 import threading
 import time
-from contextlib import closing
 from http import HTTPStatus
 from http.cookies import CookieError, SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from ukeire_dojo.explanation import LABELS, cli_executable, explanation_prompt, stream_explanation
 from ukeire_dojo.practice import MISTAKE_LOSS, Practice, practice_weights, problem_kind
 from ukeire_dojo.rooms import LiveMatchClient, RoomError, RoomManager
 
@@ -215,7 +213,6 @@ class Handler(BaseHTTPRequestHandler):
     picker: ProblemPicker
     practice: Practice | None = None
     rooms: RoomManager | None = None
-    explanation_slots = threading.BoundedSemaphore(2)
     password: str | None = None
     limiter: RateLimiter = RateLimiter()
     # 느리게 보내는 연결이 스레드를 오래 붙잡지 못하게 소켓 읽기에 시간 제한을 둔다.
@@ -467,7 +464,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/rooms" or ROOM_ACTION_PATH.match(path):
             self._handle_room_post(path)
             return
-        if path not in ("/api/answer", "/api/explanation"):
+        if path != "/api/answer":
             self._send_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
             return
         try:
@@ -476,21 +473,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": f"body must be 1..{MAX_BODY} bytes"})
                 return
             body = json.loads(self.rfile.read(length))
-            if path == "/api/explanation":
-                if self.headers.get_content_type() != "application/json":
-                    self._send_json(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {"error": "JSON이 필요합니다."})
-                    return
-                provider = body["provider"]
-                if provider not in LABELS:
-                    raise ValueError("지원하지 않는 해설 CLI입니다.")
             row = self._db().execute("SELECT * FROM problems WHERE id = ?", (int(body["id"]),)).fetchone()
             if row is None:
                 self._send_json(HTTPStatus.NOT_FOUND, {"error": "unknown problem"})
                 return
             result = grade(row, str(body["tile"]))
-            if path == "/api/explanation":
-                self._send_explanation(provider, row, result)
-                return
             if self.practice and "attempt_id" in body:
                 profile = self._profile()
                 attempt = body["attempt_id"]
@@ -513,54 +500,6 @@ class Handler(BaseHTTPRequestHandler):
         except sqlite3.Error as e:
             self.log_error("answer storage unavailable: %s", e)
             self._send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "풀이 기록을 저장할 수 없습니다."})
-
-    def _send_explanation(self, provider: str, row: sqlite3.Row, result: dict) -> None:
-        label = LABELS[provider]
-        executable = cli_executable(provider)
-        if executable is None:
-            self._send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": f"서버에서 {label} 실행 파일을 찾을 수 없습니다."})
-            return
-        if not self.explanation_slots.acquire(blocking=False):
-            self._send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": f"{label} 해설을 시작할 수 없습니다. 다른 해설이 생성 중입니다."})
-            return
-        started = time.monotonic()
-        try:
-            prompt, facts = explanation_prompt(public_problem(row), result)
-            # 본문은 기존 읽기 제한으로 받은 뒤, 해설 스트림만 대기 시간 제한을 해제한다.
-            self.connection.settimeout(None)
-            self.send_response(HTTPStatus.OK)
-            self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Connection", "close")
-            self.close_connection = True
-            self._common_headers()
-            self.end_headers()
-
-            def write(event: dict) -> None:
-                self.wfile.write((json.dumps(event, ensure_ascii=False) + "\n").encode())
-                self.wfile.flush()
-
-            write({"type": "started"})
-            try:
-                with closing(stream_explanation(provider, executable, prompt, facts)) as events:
-                    for event in events:
-                        if event["type"] in ("done", "error"):
-                            self.log_message(
-                                "explanation %s %s verified=%d rejected=%d elapsed=%.2fs",
-                                provider, event["type"], event["shown"], event["rejected"], time.monotonic() - started,
-                            )
-                        if event["type"] == "error":
-                            event["error"] = f"{label}: {event['error']}"
-                        write(event)
-            except OSError as error:
-                if isinstance(error, ConnectionError):
-                    raise
-                self.log_error("explanation %s could not start: %s", provider, error)
-                write({"type": "error", "error": f"{label} 시작에 실패했습니다."})
-        except ConnectionError:
-            self.log_message("explanation %s client disconnected", provider)
-        finally:
-            self.explanation_slots.release()
 
     def _send_static(self, path: str) -> None:
         relative = path.lstrip("/") or "index.html"

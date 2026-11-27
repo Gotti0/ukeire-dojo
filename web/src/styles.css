@@ -330,9 +330,37 @@ tr.chosen-row td:first-child {
   gap: 8px;
 }
 
-.explanation-text {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+.explanation-copy {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid #cfc9bc;
+  background: #fff;
+  color: var(--ink);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.explanation-preview {
+  margin-top: 8px;
+}
+
+.explanation-preview summary {
+  cursor: pointer;
+}
+
+.explanation-prompt {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 6px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  padding: 8px;
+  border: 1px solid #cfc9bc;
+  border-radius: 6px;
+  background: #faf8f4;
+  color: var(--ink);
+  resize: vertical;
 }
 
 .mode-tabs {
