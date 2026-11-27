@@ -32,6 +32,31 @@ class Practice:
                     PRIMARY KEY (profile, attempt)
                 )
             """)
+            db.execute("""
+                CREATE TABLE IF NOT EXISTS visitors (
+                    profile TEXT PRIMARY KEY,
+                    first_seen TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    last_seen TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            db.execute("""
+                INSERT OR IGNORE INTO visitors (profile, first_seen, last_seen)
+                SELECT profile, MIN(answered_at), MAX(answered_at) FROM attempts GROUP BY profile
+            """)
+
+    def touch_visitor(self, profile: str) -> None:
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute(
+                """INSERT INTO visitors (profile) VALUES (?)
+                   ON CONFLICT (profile) DO UPDATE SET last_seen = CURRENT_TIMESTAMP""",
+                (profile,),
+            )
+
+    def global_stats(self) -> dict[str, int]:
+        with closing(sqlite3.connect(self.path)) as db:
+            visitors = db.execute("SELECT COUNT(*) FROM visitors").fetchone()[0]
+            answered = db.execute("SELECT COUNT(*) FROM attempts").fetchone()[0]
+        return {"visitors": visitors, "answered": answered}
 
     def summary(self, profile: str | None) -> dict:
         kinds = {kind: {"answered": 0, "mistakes": 0} for kind in KINDS}
@@ -49,6 +74,11 @@ class Practice:
         self, profile: str, attempt: str, problem_id: int, kind: str, tile: str, loss: float,
     ) -> tuple[int, str]:
         with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute(
+                """INSERT INTO visitors (profile) VALUES (?)
+                   ON CONFLICT (profile) DO UPDATE SET last_seen = CURRENT_TIMESTAMP""",
+                (profile,),
+            )
             # 첫 응답을 보존해 응답 유실이나 동시 제출로 통계가 두 번 올라가지 않게 한다.
             db.execute(
                 """INSERT INTO attempts (profile, attempt, problem_id, kind, tile, loss)
