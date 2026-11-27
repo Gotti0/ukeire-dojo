@@ -7,19 +7,12 @@
   overflow-wrap: anywhere;
 }
 
-.help-intro,
-.help-guides > section,
-.help-questions {
-  padding: clamp(1rem, 3vw, 1.5rem);
-  border: 1px solid #d5cfc2;
-  border-radius: 0.75rem;
-  background: #fff;
+.help-intro {
+  --panel-background: var(--panel-tint);
 }
 
-.help-intro {
-  background: var(--felt-dark);
-  border-color: var(--felt-dark);
-  color: #fff;
+.help-intro p {
+  color: var(--panel-label);
 }
 
 .help-page :is(h2, h3, p, ol) {
@@ -39,10 +32,6 @@
 
 .help-actions button {
   min-block-size: 44px;
-}
-
-.help-actions .tab.active {
-  border-color: #91b4a9;
 }
 
 .help-guides {
@@ -71,7 +60,7 @@
 }
 
 .help-questions details + details {
-  border-block-start: 1px solid #d5cfc2;
+  border-block-start: 1px solid var(--panel-border);
 }
 
 .help-questions summary {

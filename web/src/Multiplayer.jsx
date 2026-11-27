@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PromptCopy from "./PromptCopy.jsx";
 import { buildDiscardHintPrompt } from "./prompt.js";
+import ResultTable from "./ResultTable.jsx";
 import { Melds, Tile } from "./TileView.jsx";
 import { doraOf, tileName } from "./tiles.js";
 
@@ -677,7 +678,7 @@ export default function Multiplayer() {
               {settlement.loser >= 0 ? ` · 방총: ${seatLabel(settlement.loser, match.table.dealer, room).who}` : ""}
             </p>
           )}
-          <table>
+          <ResultTable label="국 정산 점수">
             <thead>
               <tr><th>좌석</th><th>참가자</th><th>변동</th><th>점수</th><th>순위</th></tr>
             </thead>
@@ -692,7 +693,7 @@ export default function Multiplayer() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </ResultTable>
           <div className="mp-lobby-actions">
             <button
               type="button"
@@ -712,7 +713,7 @@ export default function Multiplayer() {
       {room.status === "MATCH_END" && settlement && (
         <div className="result">
           <div className="verdict good">{room.solo ? "싱글플레이 동풍전 종료" : "1경기 동풍전 종료"}</div>
-          <table>
+          <ResultTable label="동풍전 최종 점수">
             <thead>
               <tr><th>순위</th><th>좌석</th><th>참가자</th><th>최종 점수</th><th>득실</th></tr>
             </thead>
@@ -733,7 +734,7 @@ export default function Multiplayer() {
                   );
                 })}
             </tbody>
-          </table>
+          </ResultTable>
           {!room.solo && (
             <p className="muted small-text">
               같은 좌석·25,000점·동일 국·본장 패산으로 2경기를 시작하며, 2경기에서는 자기 차례에 AI 타패 추천을 볼 수 있습니다.
@@ -761,7 +762,7 @@ export default function Multiplayer() {
           <p className="muted small-text">
             동일한 국·본장 패산에서 AI 도움 없이 둔 1경기와 요청형 타패 추천을 참고해 둔 2경기의 결과입니다.
           </p>
-          <table>
+          <ResultTable label="두 경기 결과 비교">
             <thead>
               <tr>
                 <th>좌석</th>
@@ -796,7 +797,7 @@ export default function Multiplayer() {
                 );
               })}
             </tbody>
-          </table>
+          </ResultTable>
           <button type="button" className="next" onClick={() => resetSession()}>
             방 목록으로 돌아가기
           </button>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import Explanation from "./Explanation.jsx";
 import HelpPage from "./HelpPage.jsx";
 import Multiplayer from "./Multiplayer.jsx";
+import ResultTable from "./ResultTable.jsx";
 import { Melds, Tile } from "./TileView.jsx";
 import { doraOf, sortTiles, tileName, tileType } from "./tiles.js";
 
@@ -104,7 +105,7 @@ function Result({ problem, result, onNext }) {
         효율 최선: {result.eff_best.map(tileName).join(", ")}
         {result.matches_efficiency ? " (고른 수가 효율 최선)" : ""} · 효율 최선의 AI 손실 {fmt(result.eff_loss)}
       </div>
-      <table>
+      <ResultTable label="후보 타패 채점 결과">
         <thead>
           <tr>
             <th>버릴 패</th>
@@ -132,7 +133,7 @@ function Result({ problem, result, onNext }) {
             </tr>
           ))}
         </tbody>
-      </table>
+      </ResultTable>
       <p className="muted small-text">
         손실은 Epsilon-Prism v760이 추정한 순위 효용(1~4위 = 2/3, 1/3, 0, −1)의 최선수 대비 차이입니다. 유효패는 내 손패와 보이는 패를 뺀 남은
         장수입니다.
