@@ -4,13 +4,20 @@
 
 > **라이브 사이트:** https://ukeire-dojo.me
 
-[![Visitors](https://ukeire-dojo.me/api/badge/visitors.svg)](https://ukeire-dojo.me)
-[![Solved](https://ukeire-dojo.me/api/badge/solved.svg)](https://ukeire-dojo.me)
-
 기존 패효율 트레이너는 샨텐과 유효패 수로만 정답을 정한다. 실전에서는 도라, 역, 점수 상황, 상대 리치와 울기 때문에 정답이 자주 달라진다. 이 프로젝트는 [Epsilon-Prism](https://github.com/KoutaChan/Epsilon) v760(가중치 MIT)의 자기대국으로 국면을 만들고, 타패마다 두 기준을 함께 계산해 문제은행에 담는다.
 
 - 효율 기준: 샨텐과, 보이는 정보로 센 유효패 수
 - AI 기준: 최선수 대비 순위 효용 손실
+
+## 방문자 추이
+
+<a href="https://ukeire-dojo.me">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://ukeire-dojo.me/api/stats/chart.svg?theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://ukeire-dojo.me/api/stats/chart.svg?theme=light" />
+    <img alt="ukeire-dojo Visitor History" src="https://ukeire-dojo.me/api/stats/chart.svg" width="680" />
+  </picture>
+</a>
 
 ## 현재 상태 (2026-11-26)
 - 문제은행: 374반장, 184,293문제(로컬 `data/bank.sqlite`, 저장소에는 넣지 않음).

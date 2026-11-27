@@ -37,6 +37,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from xml.sax.saxutils import escape
 
+from ukeire_dojo.chart import render_history_chart_svg
 from ukeire_dojo.practice import MISTAKE_LOSS, Practice, practice_weights, problem_kind
 from ukeire_dojo.rooms import LiveMatchClient, RoomError, RoomManager
 
@@ -456,6 +457,20 @@ class Handler(BaseHTTPRequestHandler):
             if stats is not None:
                 self._send_json(HTTPStatus.OK, stats)
             return
+        if url.path == "/api/stats/chart.svg":
+            payload = self._stats_history()
+            if payload is None:
+                return
+            history, totals = payload
+            query = {k: v[-1] for k, v in parse_qs(url.query).items()}
+            svg = render_history_chart_svg(
+                history,
+                metric=query.get("metric", "visitors"),
+                theme=query.get("theme", "light"),
+                totals=totals,
+            )
+            self._send_svg(svg)
+            return
         if url.path in ("/api/badge/visitors.svg", "/api/badge/solved.svg"):
             stats = self._global_stats()
             if stats is None:
@@ -464,14 +479,7 @@ class Handler(BaseHTTPRequestHandler):
                 svg = render_badge_svg("visitors", f"{stats['visitors']:,}", "#2f5d50")
             else:
                 svg = render_badge_svg("solved", f"{stats['answered']:,}", "#2b62c4")
-            self.send_response(HTTPStatus.OK)
-            self.send_header("Content-Type", "image/svg+xml; charset=utf-8")
-            self.send_header("Content-Length", str(len(svg)))
-            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0")
-            self.send_header("Pragma", "no-cache")
-            self._common_headers()
-            self.end_headers()
-            self.wfile.write(svg)
+            self._send_svg(svg)
             return
         if url.path == "/api/problem":
             query = {k: v[-1] for k, v in parse_qs(url.query).items()}
@@ -557,6 +565,26 @@ class Handler(BaseHTTPRequestHandler):
         except sqlite3.Error as e:
             self.log_error("answer storage unavailable: %s", e)
             self._send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "풀이 기록을 저장할 수 없습니다."})
+
+    def _send_svg(self, svg: bytes) -> None:
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "image/svg+xml; charset=utf-8")
+        self.send_header("Content-Length", str(len(svg)))
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
+        self._common_headers()
+        self.end_headers()
+        self.wfile.write(svg)
+
+    def _stats_history(self) -> tuple[list[dict[str, int | str]], dict[str, int]] | None:
+        if self.practice is None:
+            return ([], {"visitors": 0, "answered": 0})
+        try:
+            return self.practice.daily_history(), self.practice.global_stats()
+        except sqlite3.Error as e:
+            self.log_error("stats history unavailable: %s", e)
+            self._send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "통계를 읽을 수 없습니다."})
+            return None
 
     def _global_stats(self) -> dict[str, int] | None:
         if self.practice is None:

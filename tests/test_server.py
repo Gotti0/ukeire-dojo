@@ -381,3 +381,26 @@ def test_stats_and_svg_badges(server):
         root = ET.fromstring(body)
         texts = [el.text for el in root.iter() if el.tag.endswith("text")]
         assert texts == [label, value]
+
+
+def test_stats_chart_svg(server):
+    import xml.etree.ElementTree as ET
+
+    b1 = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(CookieJar()))
+    p1 = json.loads(b1.open(f"{server}/api/problem").read())
+    b1.open(f"{server}/api/answer", json.dumps({"id": p1["id"], "tile": "E", "attempt_id": p1["attempt_id"]}).encode()).read()
+
+    for path, expected_substrings in (
+        ("/api/stats/chart.svg", ("Visitor History", "#ffffff")),
+        ("/api/stats/chart.svg?theme=dark", ("Visitor History", "#0d1117")),
+        ("/api/stats/chart.svg?metric=solved&theme=invalid", ("Solved History", "#ffffff")),
+    ):
+        with urllib.request.urlopen(f"{server}{path}") as resp:
+            assert resp.status == 200
+            assert resp.headers["Content-Type"].startswith("image/svg+xml")
+            assert "no-cache" in resp.headers["Cache-Control"]
+            body = resp.read().decode("utf-8")
+        root = ET.fromstring(body)
+        assert root.tag.endswith("svg")
+        for needle in expected_substrings:
+            assert needle in body
