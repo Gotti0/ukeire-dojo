@@ -256,13 +256,6 @@ h1 {
   font-size: 0.9rem;
 }
 
-.result {
-  margin-top: 16px;
-  background: #fff;
-  border-radius: 10px;
-  padding: 14px;
-}
-
 .verdict {
   font-weight: 700;
   font-size: 1.05rem;

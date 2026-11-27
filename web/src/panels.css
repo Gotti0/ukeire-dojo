@@ -1,0 +1,70 @@
+/* Tabler 카드와 결과 표의 여백·구분선을 기존 대국 스타일과 분리한다. */
+.help-page,
+.result {
+  --panel-border: #dce1e7;
+  --panel-tint: #f6f8fb;
+  --panel-label: #475569;
+  --panel-shadow: 0 1px 2px rgb(31 41 55 / 7%);
+  --panel-padding: clamp(1rem, 3vw, 1.5rem);
+}
+
+.help-intro,
+.help-guides > section,
+.help-questions,
+.result {
+  min-inline-size: 0;
+  padding: var(--panel-padding);
+  border: 1px solid var(--panel-border);
+  border-radius: 0.75rem;
+  background: var(--panel-background, #fff);
+  box-shadow: var(--panel-shadow);
+}
+
+.result {
+  margin-block-start: 1rem;
+}
+
+.result .verdict {
+  font-size: clamp(1.15rem, 3vw, 1.35rem);
+  line-height: 1.4;
+}
+
+.result-table {
+  max-inline-size: 100%;
+  margin-block-start: 0.75rem;
+  overflow-x: auto;
+  border: 1px solid var(--panel-border);
+  border-radius: 0.5rem;
+}
+
+.result-table:focus-visible {
+  outline: 2px solid var(--ai);
+  outline-offset: 2px;
+}
+
+.result-table table {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.result-table :is(th, td) {
+  padding: 0.625rem 0.75rem;
+  border-block-end: 1px solid var(--panel-border);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.result-table th {
+  background: var(--panel-tint);
+  color: var(--panel-label);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.result-table tbody tr:last-child td {
+  border-block-end: 0;
+}
+
+.result .next {
+  min-block-size: 44px;
+}
