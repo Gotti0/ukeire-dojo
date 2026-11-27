@@ -327,3 +327,14 @@ def test_second_server_cannot_share_the_port():
             Server(("127.0.0.1", first.server_address[1]), Handler)
     finally:
         first.server_close()
+
+
+def test_explanation_endpoint_removed(server):
+    body = json.dumps({"id": 1, "tile": "E", "provider": "codex"}).encode()
+    code, _ = status_of(
+        f"{server}/api/explanation",
+        headers={"Content-Type": "application/json"},
+        data=body,
+        method="POST",
+    )
+    assert code == 404
