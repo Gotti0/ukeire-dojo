@@ -1,9 +1,0 @@
-[Unit]
-Description=Deploy the tested ukeire-dojo production build
-After=network-online.target
-
-[Service]
-Type=oneshot
-User=ubuntu
-ExecStart=/usr/local/sbin/ukeire-dojo-deploy
-TimeoutStartSec=4min
