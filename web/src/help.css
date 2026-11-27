@@ -1,0 +1,86 @@
+.help-page {
+  display: grid;
+  gap: 1.25rem;
+  margin-block-start: 1rem;
+  line-height: 1.6;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.help-intro,
+.help-guides > section,
+.help-questions {
+  padding: clamp(1rem, 3vw, 1.5rem);
+  border: 1px solid #d5cfc2;
+  border-radius: 0.75rem;
+  background: #fff;
+}
+
+.help-intro {
+  background: var(--felt-dark);
+  border-color: var(--felt-dark);
+  color: #fff;
+}
+
+.help-page :is(h2, h3, p, ol) {
+  margin: 0;
+}
+
+.help-intro h2 {
+  font-size: clamp(1.6rem, 4vw, 2.1rem);
+}
+
+.help-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-block-start: 1rem;
+}
+
+.help-actions button {
+  min-block-size: 44px;
+}
+
+.help-actions .tab.active {
+  border-color: #91b4a9;
+}
+
+.help-guides {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr));
+  gap: 0.75rem;
+}
+
+.help-guides h3,
+.help-questions h3 {
+  color: var(--felt-dark);
+  font-size: 1.15rem;
+}
+
+.help-guides ol {
+  padding-inline-start: 1.25rem;
+  margin-block: 0.5rem 0.75rem;
+}
+
+.help-guides li + li {
+  margin-block-start: 0.3rem;
+}
+
+.help-guides p {
+  color: var(--muted);
+}
+
+.help-questions details + details {
+  border-block-start: 1px solid #d5cfc2;
+}
+
+.help-questions summary {
+  padding-block: 0.625rem;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.help-questions details p {
+  padding-block-end: 0.75rem;
+  color: var(--muted);
+}

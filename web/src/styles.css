@@ -365,6 +365,7 @@ tr.chosen-row td:first-child {
 
 .mode-tabs {
   display: inline-flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
