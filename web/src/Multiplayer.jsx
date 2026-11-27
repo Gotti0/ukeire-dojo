@@ -376,15 +376,15 @@ export default function Multiplayer() {
 
   if (!session || !room) {
     return (
-      <section className="mp-panel">
-        <h2>동풍전 멀티플레이</h2>
-        <p className="muted">
-          1~4명의 사람이 같은 방에 모여 동풍전을 진행합니다. 빈 좌석은 Epsilon-Prism AI가 맡습니다.
+      <section className="mp-panel mp-entry-screen" aria-labelledby="mp-entry-title">
+        <h2 id="mp-entry-title">동풍전 멀티플레이</h2>
+        <p className="muted mp-entry-description">
+          혼자라면 AI 3명과 한 경기, 친구와 함께라면 같은 패산으로 두 경기를 플레이합니다.
         </p>
-        {error && <div className="error">{error}</div>}
-        {session && !room && !error && <p className="muted">방 상태를 불러오는 중…</p>}
+        {error && <div className="error" role="alert">{error}</div>}
+        {session && !room && !error && <p className="muted" role="status">방 상태를 불러오는 중…</p>}
         <form className="mp-entry" onSubmit={joinRoom}>
-          <label>
+          <label className="mp-entry-name">
             닉네임
             <input
               type="text"
@@ -395,23 +395,32 @@ export default function Multiplayer() {
               disabled={busy}
             />
           </label>
-          <div className="mp-entry-actions">
-            <button type="button" className="btn-primary" disabled={busy || !name.trim()} onClick={createRoom}>
-              새 방 만들기
-            </button>
-            <span className="mp-divider">또는</span>
-            <input
-              type="text"
-              maxLength={8}
-              className="code-input"
-              placeholder="초대 코드 (6자리)"
-              value={joinCode}
-              onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-              disabled={busy}
-            />
-            <button type="submit" disabled={busy || !name.trim() || !joinCode.trim()}>
-              방 입장
-            </button>
+          <div className="mp-entry-options">
+            <section className="mp-entry-card" aria-labelledby="mp-create-title">
+              <h3 id="mp-create-title">내 방 열기</h3>
+              <p>방을 만든 뒤 친구에게 초대 링크를 보낼 수 있습니다.</p>
+              <button type="button" className="btn-primary" disabled={busy || !name.trim()} onClick={createRoom}>
+                새 방 만들기
+              </button>
+            </section>
+            <section className="mp-entry-card" aria-labelledby="mp-join-title">
+              <h3 id="mp-join-title">초대받은 방</h3>
+              <label>
+                초대 코드
+                <input
+                  type="text"
+                  maxLength={8}
+                  className="code-input"
+                  placeholder="초대 코드 (6자리)"
+                  value={joinCode}
+                  onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+                  disabled={busy}
+                />
+              </label>
+              <button type="submit" disabled={busy || !name.trim() || !joinCode.trim()}>
+                방 입장
+              </button>
+            </section>
           </div>
         </form>
       </section>
@@ -421,7 +430,7 @@ export default function Multiplayer() {
   if (room.status === "LOBBY") {
     const me = room.seats[room.mySeat];
     return (
-      <section className="mp-panel">
+      <section className="mp-panel mp-lobby">
         <div className="mp-lobby-head">
           <div>
             <h2>초대 방 · {room.roomCode}</h2>

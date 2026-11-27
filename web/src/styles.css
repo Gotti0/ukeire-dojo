@@ -388,48 +388,6 @@ tr.chosen-row td:first-child {
   font-size: 1.2rem;
 }
 
-.mp-entry {
-  background: #fff;
-  border-radius: 10px;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.mp-entry label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 0.9rem;
-  max-width: 280px;
-}
-
-.mp-entry input {
-  padding: 7px 10px;
-  border: 1px solid #cfc9bc;
-  border-radius: 6px;
-  font-size: 0.95rem;
-}
-
-.mp-entry-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: center;
-}
-
-.code-input {
-  width: 140px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.mp-divider {
-  color: var(--muted);
-  font-size: 0.85rem;
-}
-
 .mp-lobby-head {
   display: flex;
   justify-content: space-between;
