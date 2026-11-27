@@ -239,6 +239,7 @@ class Room:
     cond: threading.Condition = field(init=False)
     status: str = "LOBBY"  # "LOBBY" | "PLAYING" | "MATCH_END" | "SERIES_END"
     match_number: int = 1
+    solo: bool = False
     version: int = 1
     seats: list[SeatSlot] = field(default_factory=lambda: [SeatSlot(i) for i in range(_MAX_PLAYERS)])
     pending: dict | None = None
@@ -247,6 +248,10 @@ class Room:
     round_end_confirmations: set[int] = field(default_factory=set)
     first_match_result: dict | None = None
     second_match_result: dict | None = None
+
+    @property
+    def hints_enabled(self) -> bool:
+        return self.solo or self.match_number == 2
 
     def __post_init__(self) -> None:
         self.cond = threading.Condition(self.lock)
@@ -464,6 +469,7 @@ class RoomManager:
             if not ok:
                 raise RoomError(HTTPStatus.CONFLICT, reason or "시작할 수 없습니다.")
             self.client.call("create_series", roomId=room.code)
+            room.solo = sum(s.kind == "human" for s in room.seats) == 1
             for s in room.seats:
                 if s.kind == "empty":
                     s.kind = "ai"
@@ -487,6 +493,8 @@ class RoomManager:
             slot = self._require_seat(room, token)
             if slot.seat != room.host_seat:
                 raise RoomError(HTTPStatus.FORBIDDEN, "방장만 두 번째 경기를 시작할 수 있습니다.")
+            if room.solo:
+                raise RoomError(HTTPStatus.FORBIDDEN, "싱글플레이는 한 경기로 종료됩니다.")
             if room.match_number == 2 and room.status in ("PLAYING", "SERIES_END"):
                 return self._snapshot(room, slot.seat)
             if room.status != "MATCH_END" or room.match_number != 1:
@@ -514,8 +522,8 @@ class RoomManager:
         room = self._get_room(code)
         with room.lock:
             slot = self._require_seat(room, token)
-            if room.match_number != 2:
-                raise RoomError(HTTPStatus.FORBIDDEN, "타패 추천은 두 번째 경기에서만 사용할 수 있습니다.")
+            if not room.hints_enabled:
+                raise RoomError(HTTPStatus.FORBIDDEN, "멀티플레이의 첫 경기에서는 타패 추천을 사용할 수 없습니다.")
             if room.status != "PLAYING" or room.pending is None or room.pending["phase"] != "DECISIONS":
                 raise RoomError(HTTPStatus.CONFLICT, "현재 타패 추천을 요청할 수 있는 상태가 아닙니다.")
             current_rev = room.pending["revision"]
@@ -523,11 +531,11 @@ class RoomManager:
                 raise RoomError(HTTPStatus.CONFLICT, "이미 지나간 선택 시점입니다.")
             if slot.seat not in room.pending["pendingSeats"] or slot.seat in room.pending_submissions:
                 raise RoomError(HTTPStatus.CONFLICT, "지금은 내 타패 차례가 아닙니다.")
-            seat_view = self.client.call("seat_state", roomId=room.code, matchIndex=2, seat=slot.seat)
+            seat_view = self.client.call("seat_state", roomId=room.code, matchIndex=room.match_number, seat=slot.seat)
             decision = seat_view.get("decision")
             if not decision or not any(a["type"] == "DAHAI" for a in decision.get("actions", ())):
                 raise RoomError(HTTPStatus.CONFLICT, "현재 타패를 고르는 차례가 아닙니다.")
-            return self.client.call("discard_hint", roomId=room.code, matchIndex=2, seat=slot.seat)
+            return self.client.call("discard_hint", roomId=room.code, matchIndex=room.match_number, seat=slot.seat)
 
     def submit_action(self, code: str, token: str | None, revision: int, action: int) -> dict:
         room = self._get_room(code)
@@ -763,7 +771,7 @@ class RoomManager:
                 match_payload["phase"] == "DECISIONS" and (decision is None or submitted)
             )
             match_payload["hintAllowed"] = (
-                room.match_number == 2
+                room.hints_enabled
                 and room.status == "PLAYING"
                 and match_payload["phase"] == "DECISIONS"
                 and not submitted
@@ -782,12 +790,15 @@ class RoomManager:
             "version": room.version,
             "matchNumber": room.match_number,
             "mySeat": my_seat,
+            "solo": room.solo,
             "isHost": my_seat == room.host_seat,
             "disconnectGraceSeconds": self.disconnect_grace_seconds,
             "seats": seats_public,
             "canStart": can_start,
             "startBlockReason": start_reason,
-            "canStartReplay": room.status == "MATCH_END" and room.match_number == 1 and my_seat == room.host_seat,
+            "canStartReplay": (
+                room.status == "MATCH_END" and not room.solo and my_seat == room.host_seat
+            ),
             "firstMatchResult": room.first_match_result,
             "secondMatchResult": room.second_match_result,
             "match": match_payload,

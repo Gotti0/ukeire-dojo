@@ -5,7 +5,7 @@
 > **라이브 사이트:** https://ukeire-dojo.me
 
 - **패효율 트레이너:** 기존 패효율 트레이너는 샨텐과 유효패 수로만 정답을 정한다. 실전에서는 도라, 역, 점수 상황, 상대 리치와 울기 때문에 정답이 자주 달라진다. 이 프로젝트는 [Epsilon-Prism](https://github.com/KoutaChan/Epsilon) v760(가중치 MIT)의 자기대국으로 국면을 만들고, 효율 기준(샨텐·유효패)과 AI 기준(최선수 대비 순위 효용 손실)을 함께 계산해 약점 우선 출제와 모놀리식 해설 프롬프트 복사를 제공한다.
-- **동풍전 멀티플레이:** 1~4명의 사람과 AI([Epsilon-Prism](https://github.com/KoutaChan/Epsilon) v760)가 함께 치는 실시간 동풍전. 1경기 종료 후 같은 패산으로 2경기 재대국을 치며, 2경기에서 요청형 AI 타패 추천과 1·2경기 4좌석 결과 비교를 제공한다.
+- **동풍전 멀티플레이:** 1~4명의 사람과 AI([Epsilon-Prism](https://github.com/KoutaChan/Epsilon) v760)가 함께 치는 실시간 동풍전. 싱글플레이(1명 + AI 3명)는 한 경기만 치르며 첫 타패 차례부터 AI 추천을 요청할 수 있다. 사람 2~4명은 같은 패산으로 두 경기를 치르며 2경기에서 AI 추천을 요청하고 최종 결과를 비교할 수 있다.
 
 ## 방문자 추이
 
@@ -23,7 +23,7 @@
 - 트레이너 화면(T4): 문제를 풀면 효율 기준과 AI 기준으로 함께 채점하고, 버릴 수 있는 모든 패의 AI 손실, 샨텐, 유효패를 보여 준다.
 - 오답 기록(T5): 상대 리치 대응, 울기 손, 문전 손의 풀이 수와 오답률을 보여 준다. 기본 출제 방식은 약점 우선이며 균등 출제로 바꿀 수 있다.
 - 해설(T6): 채점 후 국면 정보와 전체 후보 타패 표를 담은 단일 완성형(모놀리식) 프롬프트를 원클릭 복사해 ChatGPT·Claude·Gemini 등 외부 AI에 붙여넣어 해설을 받을 수 있다.
-- 동풍전 멀티플레이(T7~T11): 초대 코드 방 생성·입장·준비, 1~4인(솔로 1인+3AI 포함) 시작, SSE 실시간 동기화와 좌석 격리, 이탈 유예 후 AI 대타 전환·재접속 복귀, 동일 패산 2경기 재대국, 2경기 요청형 AI 타패 추천(`/hint`) 및 1·2경기 비교를 지원한다. Playwright 다중 브라우저 E2E 검증 완료([검증 보고서](tools/live-e2e/README.md)).
+- 동풍전 멀티플레이(T7~T11): 초대 코드 방 생성·입장·준비, 1~4인(솔로 1인+3AI 포함) 시작, SSE 실시간 동기화와 좌석 격리, 이탈 유예 후 AI 대타 전환·재접속 복귀, 싱글플레이와 멀티플레이 재대국을 지원한다. 타패 추천(`/hint`)은 싱글플레이와 멀티플레이 2경기에서 요청할 수 있다. Playwright 다중 브라우저 E2E 검증 완료([검증 보고서](tools/live-e2e/README.md)).
 - 공개 운영 및 통계: `https://ukeire-dojo.me`에서 상시 운영 중이며(OCI ARM64 CPU + Caddy HTTPS, `--live-bot prism --live-device cpu`), 자가 호스팅 방문자·풀이 통계(`/api/stats`, `/api/stats/chart.svg`, `/api/badge/visitors.svg`, `/api/badge/solved.svg`)를 제공한다.
 - 설계와 결정 기록은 [AI 패효율 트레이너](docs/brainstorm/2026-11-26-ai-efficiency-trainer.md), [동풍전 멀티플레이](docs/brainstorm/2026-11-26-multiplayer-east-series.md)에 있다.
 

@@ -24,7 +24,7 @@ public final class EastMatchTest {
     preservesRoundsAcrossDifferentPaths();
     settlesEastFourAndBust();
     hostsSeatIsolatedScriptedMatch();
-    evaluatesReplayDiscardHintsAndRejectsMatchOne();
+    evaluatesDiscardHintsInBothMatches();
     System.out.println("EastMatchTest: 5 checks passed");
   }
 
@@ -228,13 +228,13 @@ public final class EastMatchTest {
   }
 
   @SuppressWarnings("unchecked")
-  private static void evaluatesReplayDiscardHintsAndRejectsMatchOne() {
+  private static void evaluatesDiscardHintsInBothMatches() {
     var host = LiveMatchHost.scripted();
     var created = (Map<String, Object>) host.handle(JsonParser.parseString(
         "{\"cmd\":\"create_series\",\"roomId\":\"ROOM02\"}").getAsJsonObject());
-    // 1경기에서는 추천을 거부해야 한다.
-    expect(IllegalArgumentException.class, () -> host.handle(JsonParser.parseString(
-        "{\"cmd\":\"discard_hint\",\"roomId\":\"ROOM02\",\"seat\":0,\"matchIndex\":1}").getAsJsonObject()));
+    var firstHint = (Map<String, Object>) host.handle(JsonParser.parseString(
+        "{\"cmd\":\"discard_hint\",\"roomId\":\"ROOM02\",\"seat\":0,\"matchIndex\":1}").getAsJsonObject());
+    equal(1, firstHint.get("matchNumber"), "first hint match number");
     // 1경기 완료 전에는 2경기를 시작할 수 없다.
     expect(IllegalStateException.class, () -> host.handle(JsonParser.parseString(
         "{\"cmd\":\"start_replay\",\"roomId\":\"ROOM02\"}").getAsJsonObject()));
