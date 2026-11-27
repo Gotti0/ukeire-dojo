@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import PromptCopy from "./PromptCopy.jsx";
+import { buildDiscardHintPrompt } from "./prompt.js";
 import { Melds, Tile } from "./TileView.jsx";
 import { doraOf, tileName } from "./tiles.js";
 
@@ -653,6 +655,10 @@ export default function Multiplayer() {
               ))}
             </tbody>
           </table>
+          <PromptCopy
+            key={activeHint.revision}
+            prompt={buildDiscardHintPrompt(match.table, match.round, activeHint)}
+          />
         </div>
       )}
 
