@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import closing
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 MISTAKE_LOSS = 0.01
@@ -57,6 +58,69 @@ class Practice:
             visitors = db.execute("SELECT COUNT(*) FROM visitors").fetchone()[0]
             answered = db.execute("SELECT COUNT(*) FROM attempts").fetchone()[0]
         return {"visitors": visitors, "answered": answered}
+
+    def daily_history(self, today: date | None = None) -> list[dict[str, int | str]]:
+        """날짜별 누적 방문자·풀이 수를 반환한다."""
+        with closing(sqlite3.connect(self.path)) as db:
+            visitor_rows = db.execute(
+                "SELECT substr(first_seen, 1, 10) AS d, COUNT(*) FROM visitors GROUP BY d ORDER BY d"
+            ).fetchall()
+            attempt_rows = db.execute(
+                "SELECT substr(answered_at, 1, 10) AS d, COUNT(*) FROM attempts GROUP BY d ORDER BY d"
+            ).fetchall()
+
+        visitors_by_day: dict[date, int] = {}
+        for day_str, count in visitor_rows:
+            if not day_str:
+                continue
+            try:
+                visitors_by_day[date.fromisoformat(day_str)] = int(count)
+            except ValueError:
+                continue
+
+        answered_by_day: dict[date, int] = {}
+        for day_str, count in attempt_rows:
+            if not day_str:
+                continue
+            try:
+                answered_by_day[date.fromisoformat(day_str)] = int(count)
+            except ValueError:
+                continue
+
+        end_day = today or datetime.now(timezone.utc).date()
+        active_days = visitors_by_day.keys() | answered_by_day.keys()
+        if not active_days:
+            start_day = end_day - timedelta(days=6)
+            return [
+                {
+                    "date": (start_day + timedelta(days=offset)).isoformat(),
+                    "visitors": 0,
+                    "answered": 0,
+                }
+                for offset in range(7)
+            ]
+
+        first_day = min(active_days)
+        last_day = max(max(active_days), end_day)
+        # 첫날에도 0에서 올라가는 추이선을 그릴 수 있게 하루 전을 시작점으로 둔다.
+        start_day = first_day - timedelta(days=1)
+
+        series: list[dict[str, int | str]] = []
+        cum_visitors = 0
+        cum_answered = 0
+        day = start_day
+        while day <= last_day:
+            cum_visitors += visitors_by_day.get(day, 0)
+            cum_answered += answered_by_day.get(day, 0)
+            series.append(
+                {
+                    "date": day.isoformat(),
+                    "visitors": cum_visitors,
+                    "answered": cum_answered,
+                }
+            )
+            day += timedelta(days=1)
+        return series
 
     def summary(self, profile: str | None) -> dict:
         kinds = {kind: {"answered": 0, "mistakes": 0} for kind in KINDS}
