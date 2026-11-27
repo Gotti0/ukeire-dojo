@@ -8,6 +8,7 @@ from http.server import ThreadingHTTPServer
 
 import pytest
 
+from ukeire_dojo import rooms
 from ukeire_dojo.bank import SCHEMA
 from ukeire_dojo.rooms import _CHECKPOINT, LiveMatchClient, RoomManager
 from ukeire_dojo.server import Handler, ProblemPicker, RateLimiter, Server
@@ -461,3 +462,27 @@ def test_real_prism_gpu_room_play(tmp_path):
         assert all(c["loss"] >= 0.0 for c in hint["candidates"])
     finally:
         manager.close()
+
+
+def test_jdk_tool_falls_back_to_java_home_and_path(tmp_path, monkeypatch):
+    import os
+    import shutil
+
+    monkeypatch.setattr(rooms, "VENDOR", tmp_path / "no-vendor")
+    exe = "java.exe" if os.name == "nt" else "java"
+
+    # JAVA_HOME에 실행 파일이 있으면 우선 사용한다.
+    home = tmp_path / "jdk21"
+    (home / "bin").mkdir(parents=True)
+    java_in_home = home / "bin" / exe
+    java_in_home.write_text("", encoding="utf-8")
+    monkeypatch.setenv("JAVA_HOME", str(home))
+    assert rooms._jdk_tool("java") == java_in_home
+
+    # JAVA_HOME이 없으면 PATH(shutil.which)를 사용한다.
+    monkeypatch.delenv("JAVA_HOME", raising=False)
+    monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
+    assert str(rooms._jdk_tool("java")).endswith(f"usr{os.sep}bin{os.sep}java") or rooms._jdk_tool("java").as_posix() == "/usr/bin/java"
+
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    assert rooms._jdk_tool("java") is None
