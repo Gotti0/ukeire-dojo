@@ -38,18 +38,6 @@ python -m ukeire_dojo.server --db data/bank.sqlite   # http://127.0.0.1:8765
 - `--practice-db`: 풀이·방문자 기록 SQLite 경로(기본값: 문제은행 옆 `practice.sqlite`). 같은 주소와 브라우저 프로필에서 쿠키를 유지하면 서버를 다시 시작한 뒤에도 통계를 이어서 볼 수 있다.
 - `--live-bot prism|scripted` (기본 `prism`), `--live-device gpu0|cpu` (기본 `gpu0`), `--disconnect-grace` (기본 `15.0`초): GPU·체크포인트 없이 UI나 방 흐름만 빠르게 시험할 때는 `--live-bot scripted`를 쓸 수 있고, CPU 환경에서는 `--live-device cpu`를 지정한다(JDK는 `vendor/jdk` → `JAVA_HOME` → `PATH` 순으로 자동 탐색한다).
 
-## 공개 운영 / 지인에게 공개 (DDNS)
-```powershell
-.\scripts\serve-public.ps1   # 0.0.0.0:5173, 암호는 data\server-password.txt(처음 실행할 때 무작위로 만든다)
-```
-- 탐색기에서 `serve-public.bat`을 더블클릭해도 같다. 창을 닫거나 `Ctrl+C`를 누르면 서버가 멈춘다. 오류로 끝나면 창이 닫히지 않고 기다린다.
-- 기존 화면 빌드가 있는 상태에서 업데이트했다면 `web`에서 `npm run build`를 실행한 뒤 서버를 시작한다.
-- 이미 서버가 떠 있으면 두 번째 실행은 "이미 사용 중"으로 바로 실패한다.
-- 외부 주소로 열 때는 서버가 암호(Basic 인증, 12자 이상) 없이는 시작하지 않는다.
-- API 요청과 인증 실패에 IP별 속도 제한(초당 20회, 순간 100회), 요청 본문 4KB 제한, 소켓 시간 제한이 걸린다. 접속 기록은 `data\server-access.log`에 남는다.
-- HTTP라서 암호가 평문으로 오간다. 다른 곳에 쓰는 암호를 쓰지 않는다. HTTPS 공개 운영(예: `ukeire-dojo.me`) 시에는 `127.0.0.1:8765`로 띄우고 앞단에 Caddy 등 리버스 프록시(SSE용 flush 설정 포함)를 둔다.
-- DDNS 직접 공개 시에는 공유기 포트 포워딩(TCP 5173 → 이 PC)과 Windows 방화벽 인바운드 허용을 직접 설정한다.
-
 ## 구성
 | 경로 | 내용 |
 | --- | --- |
