@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildExplanationPrompt } from "./prompt.js";
+import { buildDiscardHintPrompt, buildExplanationPrompt } from "./prompt.js";
 
 function makeProblem(overrides = {}) {
   return {
@@ -115,4 +115,23 @@ test("handles post-call discard (draw=null) and empty waits", () => {
 
   assert.match(prompt, /울기 직후 타패\(쯔모 없음\)/);
   assert.match(prompt, /\| 5삭\(5s\) \| 0\.120 \| — \| 2 \| 12 \| — \| — \|/);
+});
+
+test("live hint explains the current East round using only the visible table and discard losses", () => {
+  const table = makeProblem({ draw: null, hiddenWall: ["SECRET"], roomToken: "PRIVATE" });
+  const round = { kyoku: 3, honba: 2 };
+  const hint = {
+    bestTile: "5mr",
+    candidates: [{ tile: "5mr", loss: 0 }, { tile: "E", loss: 0.0246 }],
+  };
+
+  const prompt = buildDiscardHintPrompt(table, round, hint);
+
+  assert.match(prompt, /동풍전/);
+  assert.match(prompt, /동3국 2본장 · 공탁 1개 · 남은 패 41장/);
+  assert.match(prompt, /울기 직후 타패/);
+  assert.match(prompt, /하가\(동가\).*리치 중/);
+  assert.match(prompt, /AI 추천 타패: 적5만\(5mr\)/);
+  assert.match(prompt, /\| 동\(E\) \| 0\.025 \|/);
+  assert.doesNotMatch(prompt, /반장전|내 선택|효율 최선|SECRET|PRIVATE|undefined/);
 });

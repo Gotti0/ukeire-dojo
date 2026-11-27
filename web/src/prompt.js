@@ -39,17 +39,16 @@ function rowNotes(row, result) {
   return tags.join(", ") || "—";
 }
 
-export function buildExplanationPrompt(problem, result) {
-  const roundLabel = `${ROUND_WIND[problem.round[0]] ?? problem.round[0]}${problem.round.slice(1)}국`;
-  const doraIndicators = problem.dora.map(fmtTile).join(", ");
-  const actualDora = problem.dora.map((d) => fmtTile(doraOf(d))).join(", ");
-  const handList = sortTiles(problem.hand).join(" ");
-  const drawText = problem.draw ? `쯔모: ${fmtTile(problem.draw)}` : "울기 직후 타패(쯔모 없음)";
+function formatTableContext(table) {
+  const doraIndicators = table.dora.map(fmtTile).join(", ");
+  const actualDora = table.dora.map((d) => fmtTile(doraOf(d))).join(", ");
+  const handList = sortTiles(table.hand).join(" ");
+  const drawText = table.draw ? `쯔모: ${fmtTile(table.draw)}` : "울기 직후 타패(쯔모 없음)";
 
   const playerLines = [0, 1, 2, 3].map((offset) => {
-    const seat = (problem.seat + offset) % 4;
-    const player = problem.players[seat];
-    const wind = WINDS[(seat - problem.dealer + 4) % 4];
+    const seat = (table.seat + offset) % 4;
+    const player = table.players[seat];
+    const wind = WINDS[(seat - table.dealer + 4) % 4];
     const role = RELATIVE[offset];
     const riichiText = player.riichi ? "리치 중" : "비리치";
     const handKind = player.melds.length > 0 ? `울기 ${player.melds.length}개` : "문전";
@@ -60,6 +59,16 @@ export function buildExplanationPrompt(problem, result) {
     ].join("\n");
   });
 
+  return [
+    `- 도라 표시패: ${doraIndicators} -> 실제 도라: ${actualDora}`,
+    `- 내 손패: ${handList} / ${drawText}`,
+    "- 테이블 상태:",
+    ...playerLines,
+  ];
+}
+
+export function buildExplanationPrompt(problem, result) {
+  const roundLabel = `${ROUND_WIND[problem.round[0]] ?? problem.round[0]}${problem.round.slice(1)}국`;
   const chosenRow = result.table.find((row) => row.tile === result.tile);
   const bestRow = result.table.find((row) => row.tile === result.ai_best);
   const effBestText = result.eff_best.map(fmtTile).join(", ");
@@ -96,10 +105,7 @@ export function buildExplanationPrompt(problem, result) {
     "",
     "## 국면 정보",
     `- 장/국: ${roundLabel} ${problem.honba}본장 · 공탁 ${problem.kyotaku}개 · ${problem.junme}순째 · 남은 패 ${problem.remaining}장`,
-    `- 도라 표시패: ${doraIndicators} -> 실제 도라: ${actualDora}`,
-    `- 내 손패: ${handList} / ${drawText}`,
-    "- 테이블 상태:",
-    ...playerLines,
+    ...formatTableContext(problem),
     "",
     "## 채점 결과 요약",
     `- 내 선택: ${fmtTile(result.tile)} (AI 손실 ${fmtLoss(result.chosen_ai_loss)}, ${fmtShantenSummary(chosenRow)}, 유효패 ${chosenRow ? chosenRow.ukeire : "—"}장)`,
@@ -112,5 +118,28 @@ export function buildExplanationPrompt(problem, result) {
     "",
     "## 질문",
     ...questions,
+  ].join("\n");
+}
+
+export function buildDiscardHintPrompt(table, round, hint) {
+  return [
+    "당신은 4인 리치 마작 동풍전의 전략 해설가입니다.",
+    "타패를 고르기 전 국면입니다. 아래에 제공된 국면과 후보별 AI 손실을 근거로 한국어로 설명해 주세요.",
+    "AI 손실은 후보 타패 중 최고 평가값과의 차이입니다. 방총 확률로 해석하지 마세요.",
+    "상대 손패와 패산 순서는 추정으로만 다루고, 제공되지 않은 수치는 단정하지 마세요.",
+    "패 표기: m=만, p=통, s=삭, r=적5, E/S/W/N=동/남/서/북, P/F/C=백/발/중.",
+    "",
+    "## 국면 정보",
+    `- 장/국: 동${round.kyoku}국 ${round.honba}본장 · 공탁 ${table.kyotaku}개 · 남은 패 ${table.remaining}장`,
+    ...formatTableContext(table),
+    "",
+    `## AI 추천 타패: ${fmtTile(hint.bestTile)}`,
+    "| 타패 | AI 손실 |",
+    "| --- | ---: |",
+    ...hint.candidates.map(({ tile, loss }) => `| ${fmtTile(tile)} | ${fmtLoss(loss)} |`),
+    "",
+    "## 질문",
+    "추천 타패와 다른 상위 후보의 장단점을 패효율, 타점, 수비, 점수 상황 중 이 국면에 중요한 관점에서 비교해 주세요.",
+    "평가가 비슷한 후보가 있다면 어떤 판단 기준으로 고를 수 있는지 알려 주세요.",
   ].join("\n");
 }

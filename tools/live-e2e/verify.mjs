@@ -260,6 +260,15 @@ async function runScenarioA(browser, baseUrl) {
     assert.ok((await pageA.locator(".hand .ai-best").count()) >= 1);
     assert.equal(await pageB.locator(".hint-panel").count(), 0);
 
+    const copy = pageA.getByRole("button", { name: "AI 해설 프롬프트 복사" });
+    await ctxA.grantPermissions(["clipboard-read", "clipboard-write"], { origin: baseUrl });
+    await copy.click();
+    await pageA.getByRole("status").filter({ hasText: "프롬프트를 복사했습니다" }).waitFor();
+    const copiedPrompt = await pageA.evaluate(() => navigator.clipboard.readText());
+    assert.match(copiedPrompt, /동1국 0본장/);
+    assert.match(copiedPrompt, /\| 타패 \| AI 손실 \|/);
+    assert.equal(await pageB.getByRole("button", { name: "AI 해설 프롬프트 복사" }).count(), 0);
+
     let delayedOnce = false;
     await pageA.route("**/api/rooms/*/hint", async (route) => {
       if (!delayedOnce) {
