@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import Explanation from "./Explanation.jsx";
+import HelpPage from "./HelpPage.jsx";
 import Multiplayer from "./Multiplayer.jsx";
 import { Melds, Tile } from "./TileView.jsx";
 import { doraOf, sortTiles, tileName, tileType } from "./tiles.js";
@@ -196,6 +197,10 @@ function Filters({ filters, onChange, busy }) {
   );
 }
 
+function isHelpPage() {
+  return window.location.pathname === "/help" || window.location.pathname === "/help/";
+}
+
 function initialMode() {
   if (new URLSearchParams(window.location.search).get("room")) return "multiplayer";
   try {
@@ -207,7 +212,8 @@ function initialMode() {
 }
 
 export default function App() {
-  const [mode, setMode] = useState(initialMode);
+  const [helpOpen, setHelpOpen] = useState(isHelpPage);
+  const [mode, setMode] = useState(() => isHelpPage() ? null : initialMode());
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const [problem, setProblem] = useState(null);
   const [result, setResult] = useState(null);
@@ -215,6 +221,27 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [score, setScore] = useState({ solved: 0, aiMatch: 0, lossSum: 0 });
   const [practice, setPractice] = useState(null);
+
+  useEffect(() => {
+    const readPage = () => {
+      const help = isHelpPage();
+      setHelpOpen(help);
+      if (!help) setMode((current) => current ?? initialMode());
+    };
+    window.addEventListener("popstate", readPage);
+    return () => window.removeEventListener("popstate", readPage);
+  }, []);
+
+  const navigate = (nextMode) => {
+    const openingHelp = nextMode === null;
+    if (openingHelp !== helpOpen) {
+      const url = new URL(window.location.href);
+      url.pathname = openingHelp ? "/help" : "/";
+      window.history.pushState(null, "", url);
+      setHelpOpen(openingHelp);
+    }
+    if (!openingHelp) setMode(nextMode);
+  };
 
   const load = useCallback(async (signal) => {
     setBusy(true);
@@ -275,35 +302,45 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (mode !== "trainer") return undefined;
+    if (helpOpen || mode !== "trainer") return undefined;
     const onKey = (e) => {
       if (e.key === "Enter" && result && !busy && !e.target.closest?.("button, select, input, textarea, summary")) load();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [mode, result, busy, load]);
+  }, [helpOpen, mode, result, busy, load]);
 
   return (
     <div className="app">
       <header>
         <h1>ukeire-dojo</h1>
-        <nav className="mode-tabs" aria-label="모드 전환">
+        <nav className="mode-tabs" aria-label="화면 전환">
           <button
             type="button"
-            className={mode === "trainer" ? "tab active" : "tab"}
-            onClick={() => setMode("trainer")}
+            className={!helpOpen && mode === "trainer" ? "tab active" : "tab"}
+            aria-current={!helpOpen && mode === "trainer" ? "page" : undefined}
+            onClick={() => navigate("trainer")}
           >
             패효율 트레이너
           </button>
           <button
             type="button"
-            className={mode === "multiplayer" ? "tab active" : "tab"}
-            onClick={() => setMode("multiplayer")}
+            className={!helpOpen && mode === "multiplayer" ? "tab active" : "tab"}
+            aria-current={!helpOpen && mode === "multiplayer" ? "page" : undefined}
+            onClick={() => navigate("multiplayer")}
           >
             동풍전 멀티플레이
           </button>
+          <button
+            type="button"
+            className={helpOpen ? "tab active" : "tab"}
+            aria-current={helpOpen ? "page" : undefined}
+            onClick={() => navigate(null)}
+          >
+            도움말
+          </button>
         </nav>
-        {mode === "trainer" && (
+        {!helpOpen && mode === "trainer" && (
           <span className="muted">
             푼 문제 {score.solved} · AI 일치 {score.aiMatch} · 평균 손실 {score.solved ? (score.lossSum / score.solved).toFixed(3) : "—"}
           </span>
@@ -312,28 +349,31 @@ export default function App() {
           GitHub
         </a>
       </header>
-      {mode === "multiplayer" ? (
-        <Multiplayer />
-      ) : (
-        <>
-          <Filters filters={filters} onChange={setFilters} busy={busy} />
-          <PracticeStats practice={practice} />
-          {error && <div className="error">{error}</div>}
-          {problem && (
-            <>
-              <TableView problem={problem} />
-              <div className="prompt">{result ? "결과" : "무엇을 버릴까요?"}</div>
-              <Hand problem={problem} result={result} onDiscard={discard} busy={busy} />
-              {problem.players[problem.seat].melds.length > 0 && (
-                <div className="my-melds">
-                  울기 <Melds melds={problem.players[problem.seat].melds} />
-                </div>
-              )}
-              {result && <Result problem={problem} result={result} onNext={load} />}
-            </>
-          )}
-        </>
-      )}
+      {helpOpen && <HelpPage onNavigate={navigate} />}
+      <main hidden={helpOpen}>
+        {mode === "multiplayer" ? (
+          <Multiplayer />
+        ) : mode === "trainer" && (
+          <>
+            <Filters filters={filters} onChange={setFilters} busy={busy} />
+            <PracticeStats practice={practice} />
+            {error && <div className="error">{error}</div>}
+            {problem && (
+              <>
+                <TableView problem={problem} />
+                <div className="prompt">{result ? "결과" : "무엇을 버릴까요?"}</div>
+                <Hand problem={problem} result={result} onDiscard={discard} busy={busy} />
+                {problem.players[problem.seat].melds.length > 0 && (
+                  <div className="my-melds">
+                    울기 <Melds melds={problem.players[problem.seat].melds} />
+                  </div>
+                )}
+                {result && <Result problem={problem} result={result} onNext={load} />}
+              </>
+            )}
+          </>
+        )}
+      </main>
       <footer className="muted small-text">
         패 이미지: Euophrys Riichi-Trainer (CC BY 4.0) · AI: Epsilon-Prism v760 (가중치 MIT). 개인 학습용이며 온라인 대국 보조에 쓰지 않습니다. ·{" "}
         <a href={REPO_URL} target="_blank" rel="noopener noreferrer">GitHub</a>
