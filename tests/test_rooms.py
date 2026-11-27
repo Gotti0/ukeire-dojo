@@ -413,6 +413,7 @@ def test_replay_starts_with_ai_takeover_for_disconnected_player(live_server):
         s1.close()
 
 
+@pytest.mark.gpu
 def test_real_prism_gpu_room_play(tmp_path):
     if not _CHECKPOINT.exists():
         pytest.skip("Prism checkpoint not found")
